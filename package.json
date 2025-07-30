@@ -1,0 +1,15 @@
+{
+  "name": "game-annotation-tool",
+  "version": "1.0.0",
+  "description": "Electron base app for gameplay annotation with live note-taking overlay.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^25.2.0"
+  },
+  "dependencies": {
+    "obs-websocket-js": "^5.0.6"
+  }
+}
