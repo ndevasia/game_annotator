@@ -1,33 +1,47 @@
-const { app, BrowserWindow, globalShortcut } = require('electron');
-
+const { app, BrowserWindow, globalShortcut, ipcMain } = require('electron');
 const fs = require('fs');
-const { ipcMain } = require('electron');
-
-const annotationsFilePath = 'annotations.json';
-
 const OBSWebSocket = require('obs-websocket-js');
 const obs = new OBSWebSocket.OBSWebSocket();
 
-// const OBS_ADDRESS = 'ws://localhost:4455'; // Change if different port or remote host
-// const OBS_PASSWORD = ''; // Put your password here if you set onenpm
+function getFormattedTimestamp() {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const yyyy = now.getFullYear();
+  const MM = pad(now.getMonth() + 1);
+  const dd = pad(now.getDate());
+  const hh = pad(now.getHours());
+  const mm = pad(now.getMinutes());
+  const ss = pad(now.getSeconds());
+  return `${yyyy}-${MM}-${dd} ${hh}-${mm}-${ss}`;
+}
 
-// For OBS, I needed to disable authentication as well as set a particular source for the display. 
-// I also manually set the output source to this folder/Videos.
+const timestamp = getFormattedTimestamp();
+const annotationsFilePath = `annotations/${timestamp}.json`;
 
-
-// Ensure the file exists
 if (!fs.existsSync(annotationsFilePath)) {
   fs.writeFileSync(annotationsFilePath, JSON.stringify([]));
 }
 
 let noteWindow = null;
+let mainWindow = null;
 
-// Function to create the note overlay window
+function createMainWindow() {
+  mainWindow = new BrowserWindow({
+    width: 800,
+    height: 600,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+  });
+
+  mainWindow.loadFile('index.html');
+  // mainWindow.webContents.openDevTools();
+}
+
 function createNoteWindow() {
-  if (noteWindow) {
-    return;
-  }
-  
+  if (noteWindow) return;
+
   noteWindow = new BrowserWindow({
     width: 400,
     height: 200,
@@ -36,49 +50,37 @@ function createNoteWindow() {
     frame: false,
     resizable: false,
     skipTaskbar: true,
-    show: false,  // <-- Add this line
+    show: false,
     webPreferences: {
       nodeIntegration: true,
-      contextIsolation: false // For simplicity in this prototype
+      contextIsolation: false
     }
   });
-  
+
   noteWindow.loadFile('overlay.html');
+
   noteWindow.once('ready-to-show', () => {
     console.log('Overlay window ready');
   });
 
   noteWindow.on('blur', () => noteWindow.hide());
 
-  noteWindow.on('closed', () => {
+  noteWindow.on('closed', async () => {
     noteWindow = null;
   });
 }
 
-// Optionally create a hidden main window if needed
-// function createMainWindow() {
-//   let mainWin = new BrowserWindow({
-//     show: false, // Main window is hidden as the overlay will be used for annotations
-//     webPreferences: {
-//       nodeIntegration: true,
-//       contextIsolation: false,
-//     }
-//   });
-// }
-
 async function connectOBS() {
   try {
     await obs.connect();
-
     console.log('Connected to OBS WebSocket');
-
     const { outputActive } = await obs.call('GetRecordStatus');
     if (!outputActive) {
       await obs.call('StartRecord');
       console.log('OBS recording started');
     }
   } catch (error) {
-    console.error('Failed to connect or start recording:', error);
+    console.error('Failed to connect/start OBS recording:', error);
   }
 }
 
@@ -94,73 +96,73 @@ async function stopOBSRecording() {
   }
 }
 
+let isQuitting = false;
 
-app.whenReady().then(() => {
-    createNoteWindow();
-    connectOBS();
-  // Register global hotkey (Ctrl/Cmd + Shift + N)
+app.whenReady().then(async () => {
+  await connectOBS();        // Wait for OBS to be ready and start recording
+  createNoteWindow();        // Then open the overlay window
+
   globalShortcut.register('CommandOrControl+Shift+N', () => {
-    if (noteWindow) {
-      if (!noteWindow.isVisible()) noteWindow.show();
+    if (noteWindow && !noteWindow.isVisible()) {
+      noteWindow.show();
       noteWindow.focus();
     }
   });
-  // New quit hotkey
+
   globalShortcut.register('CommandOrControl+Shift+Q', async () => {
     console.log('Quit hotkey pressed: stopping recording and quitting app');
-    await stopOBSRecording(); // Make sure to stop recording cleanly
+    // await stopOBSRecording();
+    // obs.disconnect();
     app.quit();
   });
 
-  console.log('Registered shortcuts:', globalShortcut.isRegistered('CommandOrControl+Shift+N'), globalShortcut.isRegistered('CommandOrControl+Shift+Q'));
-
-
   ipcMain.on('save-annotation', (event, annotation) => {
-  try {
-    const data = fs.readFileSync(annotationsFilePath);
-    const annotations = JSON.parse(data);
-    annotations.push(annotation);
-    fs.writeFileSync(annotationsFilePath, JSON.stringify(annotations, null, 2));
-  } catch (err) {
-    console.error('Error saving annotation:', err);
-  }
-});
-ipcMain.on('hide-overlay', () => {
-  if (noteWindow && noteWindow.isVisible()) {
-    noteWindow.hide();
-  }
-});
+    try {
+      const data = fs.readFileSync(annotationsFilePath);
+      const annotations = JSON.parse(data);
+      annotations.push(annotation);
+      fs.writeFileSync(annotationsFilePath, JSON.stringify(annotations, null, 2));
+    } catch (err) {
+      console.error('Error saving annotation:', err);
+    }
+  });
 
-  app.on('activate', () => {
-    // On macOS, re-create a window in the app when the dock icon is clicked and there are no other windows open.
-    // if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
+  ipcMain.on('hide-overlay', () => {
+    if (noteWindow && noteWindow.isVisible()) {
+      noteWindow.hide();
+    }
   });
 });
 
-let isQuitting = false;
-
 app.on('before-quit', async (event) => {
   if (!isQuitting) {
-    event.preventDefault(); // Only prevent the first time
-
+    event.preventDefault(); // prevent immediate quit
     console.log('Gracefully stopping OBS before quitting...');
-    await stopOBSRecording();
-    obs.disconnect();
-
+    
     isQuitting = true;
-    app.quit(); // Trigger quit again — this time will go through
+
+    try {
+      await stopOBSRecording();
+      await obs.disconnect(); // separate OBS disconnect if needed
+    } catch (err) {
+      console.error('Error during OBS shutdown:', err);
+    }
+
+    // Close overlay window
+    if (noteWindow) {
+      noteWindow.close();
+    }
+
+    // Now launch main window (for playback)
+    createMainWindow();
   }
 });
 
-
-
-// Unregister all shortcuts when quitting.
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
 });
 
 app.on('window-all-closed', () => {
-  // On macOS it's common for apps to stay open until the user quits explicitly with Cmd + Q.
   if (process.platform !== 'darwin') {
     app.quit();
   }
