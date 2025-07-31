@@ -24,6 +24,7 @@ if (!fs.existsSync(annotationsFilePath)) {
 
 let noteWindow = null;
 let mainWindow = null;
+let videoStartTimestamp = null;
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({
@@ -36,7 +37,11 @@ function createMainWindow() {
   });
 
   mainWindow.loadFile('index.html');
-  // mainWindow.webContents.openDevTools();
+  mainWindow.webContents.on('did-finish-load', () => {
+    console.log('Sending videoStartTimestamp:', videoStartTimestamp);
+    mainWindow.webContents.send('video-start-timestamp', videoStartTimestamp);
+  });
+  mainWindow.webContents.openDevTools();
 }
 
 function createNoteWindow() {
@@ -77,6 +82,7 @@ async function connectOBS() {
     const { outputActive } = await obs.call('GetRecordStatus');
     if (!outputActive) {
       await obs.call('StartRecord');
+      videoStartTimestamp = Date.now();
       console.log('OBS recording started');
     }
   } catch (error) {
@@ -132,6 +138,9 @@ app.whenReady().then(async () => {
       noteWindow.hide();
     }
   });
+  ipcMain.handle('get-video-start', () => {
+    return videoStartTimestamp;
+    });
 });
 
 app.on('before-quit', async (event) => {
@@ -154,7 +163,7 @@ app.on('before-quit', async (event) => {
     }
 
     // Now launch main window (for playback)
-    createMainWindow();
+     createMainWindow();
   }
 });
 

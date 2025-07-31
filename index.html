@@ -4,49 +4,77 @@
   <meta charset="UTF-8">
   <title>Video + Annotations</title>
   <style>
-    video { width: 100%; max-width: 700px; margin-bottom: 1em; }
-    .annotation { margin: 5px 0; padding: 4px 8px; border-left: 4px solid #ccc; }
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+    }
+
+    video {
+      width: 100%;
+      max-width: 700px;
+      margin-bottom: 1em;
+    }
+
+    .annotation {
+      margin: 5px 0;
+      padding: 4px 8px;
+      border-left: 4px solid #ccc;
+      cursor: pointer;
+    }
+
+    .annotation:hover {
+      background-color: #f0f0f0;
+    }
   </style>
 </head>
 <body>
   <h1>Video Session with Annotations</h1>
   <video id="videoPlayer" controls>
-    <source src="Videos/session1.mp4" type="video/mp4">
+    <source id="videoSource" src="" type="video/mp4">
     Your browser does not support the video tag.
   </video>
 
-  <div id="annotations"></div>
+  <div id="annotations">Loading annotations...</div>
 
   <script>
   const fs = require('fs');
   const path = require('path');
+  const { ipcRenderer } = require('electron');
 
   const annotationsDir = path.join(__dirname, 'annotations');
-  const videosDir = path.join(__dirname, 'videos'); // Update to your actual video folder if different
+  const videosDir = path.join(__dirname, 'videos');
 
-  function getLatestFile(dir, ext) {
-    const files = fs.readdirSync(dir)
-      .filter(f => f.endsWith(ext))
-      .sort()
-      .reverse(); // newest first
+  window.onload = async () => {
+    ipcRenderer.on('video-start-timestamp', (event, timestamp) => {
+        console.log('Received timestamp:', timestamp);
+        videoStartTimestamp = timestamp;
+    });
+    const video = document.getElementById('videoPlayer');
+    const container = document.getElementById('annotations');
 
-    return files.length > 0 ? files[0] : null;
-  }
+    function getLatestFile(dir, ext) {
+      const files = fs.readdirSync(dir)
+        .filter(f => f.endsWith(ext))
+        .sort()
+        .reverse(); // newest first
+      return files.length > 0 ? files[0] : null;
+    }
 
-  const latestAnnotation = getLatestFile(annotationsDir, '.json');
-  const latestVideo = getLatestFile(videosDir, '.mkv'); // or '.mp4', depending on what OBS saves
+    const latestAnnotation = getLatestFile(annotationsDir, '.json');
+    const latestVideo = getLatestFile(videosDir, '.mkv'); // change to '.mp4' if needed
 
-  if (!latestAnnotation || !latestVideo) {
-    console.error('Missing latest annotation or video file.');
-  } else {
+    if (!latestAnnotation || !latestVideo) {
+      console.error('Missing latest annotation or video file.');
+      return;
+    }
+
     const annotationPath = path.join(annotationsDir, latestAnnotation);
     const videoPath = path.join(videosDir, latestVideo);
 
-    // Load video
-    const video = document.getElementById('videoPlayer');
-    video.src = `videos/${latestVideo}`; // relative path for use in <video> tag
+    // Set video source
+    video.src = `videos/${latestVideo}`;
 
-    // Load annotations
+    // Load annotations after videoStartTimestamp is known
     fs.readFile(annotationPath, 'utf8', (err, data) => {
       if (err) {
         console.error('Failed to load annotations:', err);
@@ -54,21 +82,30 @@
       }
 
       const annotations = JSON.parse(data);
-      const container = document.getElementById('annotations');
+      if (annotations.length === 0) {
+        console.warn('No annotations found.');
+        return;
+      }
 
       annotations.forEach(a => {
+        const offsetSeconds = (a.timestamp - videoStartTimestamp) / 1000;
+        const minutes = Math.floor(offsetSeconds / 60);
+        const seconds = Math.floor(offsetSeconds % 60);
+        const timeStr = `${minutes.toString().padStart(2,'0')}:${seconds.toString().padStart(2,'0')}`;
+
         const note = document.createElement('div');
         note.className = 'annotation';
-        const relTime = new Date(a.timestamp).toLocaleTimeString();
-        note.innerHTML = `<strong>${relTime}</strong>: ${a.note}`;
+        note.innerHTML = `<strong>${timeStr}</strong>: ${a.note}`;
+
         note.onclick = () => {
-          // TODO: Convert timestamp to video time for seeking
-          console.log(`Annotation clicked: ${a.note}`);
+          video.currentTime = offsetSeconds;
+          video.play();
         };
+
         container.appendChild(note);
       });
     });
-  }
+  };
 </script>
 
 </body>
