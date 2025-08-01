@@ -17,14 +17,25 @@ function getFormattedTimestamp() {
 
 const timestamp = getFormattedTimestamp();
 const annotationsFilePath = `annotations/${timestamp}.json`;
+const sessionsFilePath = `metadata/${timestamp}.json`;
 
 if (!fs.existsSync(annotationsFilePath)) {
   fs.writeFileSync(annotationsFilePath, JSON.stringify([]));
 }
 
+if (!fs.existsSync(sessionsFilePath)) {
+  fs.writeFileSync(sessionsFilePath, JSON.stringify([]));
+}
+
 let noteWindow = null;
 let mainWindow = null;
+let startWindow = null;
 let videoStartTimestamp = null;
+let sessionMetadata = {
+  title: null,
+  annotationPath: annotationsFilePath,
+  videoStartTimestamp: null,
+};
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({
@@ -37,11 +48,15 @@ function createMainWindow() {
   });
 
   mainWindow.loadFile('index.html');
-  mainWindow.webContents.on('did-finish-load', () => {
-    console.log('Sending videoStartTimestamp:', videoStartTimestamp);
-    mainWindow.webContents.send('video-start-timestamp', videoStartTimestamp);
-  });
+  // mainWindow.webContents.on('did-finish-load', () => {
+  //   console.log('Sending videoStartTimestamp:', videoStartTimestamp);
+  //   mainWindow.webContents.send('video-start-timestamp', videoStartTimestamp);
+  // });
   mainWindow.webContents.openDevTools();
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+    app.quit();
+  });
 }
 
 function createNoteWindow() {
@@ -75,6 +90,32 @@ function createNoteWindow() {
   });
 }
 
+function createStartWindow() {
+  if (startWindow) return;
+
+  startWindow = new BrowserWindow({
+    width: 400,
+    height: 200,
+    alwaysOnTop: true,
+    transparent: true,
+    frame: false,
+    resizable: false,
+    skipTaskbar: true,
+    show: true,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    }
+  });
+
+  startWindow.loadFile('start.html');
+
+  startWindow.once('ready-to-show', () => {
+    console.log('Start window ready');
+  });
+
+}
+
 async function connectOBS() {
   try {
     await obs.connect();
@@ -82,7 +123,8 @@ async function connectOBS() {
     const { outputActive } = await obs.call('GetRecordStatus');
     if (!outputActive) {
       await obs.call('StartRecord');
-      videoStartTimestamp = Date.now();
+      sessionMetadata.videoStartTimestamp = Date.now();
+      maybeWriteSessionMetadata();
       console.log('OBS recording started');
     }
   } catch (error) {
@@ -94,7 +136,7 @@ async function stopOBSRecording() {
   try {
     const { outputActive } = await obs.call('GetRecordStatus');
     if (outputActive) {
-      await obs.call('StopRecord');
+      await obs.call('StopRecord')
       console.log('OBS recording stopped');
     }
   } catch (error) {
@@ -105,6 +147,7 @@ async function stopOBSRecording() {
 let isQuitting = false;
 
 app.whenReady().then(async () => {
+  createStartWindow();
   await connectOBS();        // Wait for OBS to be ready and start recording
   createNoteWindow();        // Then open the overlay window
 
@@ -116,9 +159,7 @@ app.whenReady().then(async () => {
   });
 
   globalShortcut.register('CommandOrControl+Shift+Q', async () => {
-    console.log('Quit hotkey pressed: stopping recording and quitting app');
-    // await stopOBSRecording();
-    // obs.disconnect();
+    console.log('Quit hotkey pressed: stopping recording');
     app.quit();
   });
 
@@ -132,16 +173,32 @@ app.whenReady().then(async () => {
       console.error('Error saving annotation:', err);
     }
   });
+  ipcMain.on('save-start', (event, { title }) => {
+    sessionMetadata.title = title;
+    maybeWriteSessionMetadata();
+  });
+
 
   ipcMain.on('hide-overlay', () => {
     if (noteWindow && noteWindow.isVisible()) {
       noteWindow.hide();
     }
   });
+  ipcMain.on('hide-start', () => {
+    if (startWindow && startWindow.isVisible()) {
+      startWindow.hide();
+    }
+  });
   ipcMain.handle('get-video-start', () => {
     return videoStartTimestamp;
     });
-});
+  });
+  function maybeWriteSessionMetadata() {
+    if (sessionMetadata.title && sessionMetadata.videoStartTimestamp) {
+      fs.writeFileSync(sessionsFilePath, JSON.stringify(sessionMetadata, null, 3));
+      console.log('Session metadata written:', sessionMetadata);
+    }
+  }
 
 app.on('before-quit', async (event) => {
   if (!isQuitting) {

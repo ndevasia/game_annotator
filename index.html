@@ -9,6 +9,10 @@
       padding: 20px;
     }
 
+    .session {
+      margin-bottom: 40px;
+    }
+
     video {
       width: 100%;
       max-width: 700px;
@@ -28,83 +32,152 @@
   </style>
 </head>
 <body>
-  <h1>Video Session with Annotations</h1>
-  <video id="videoPlayer" controls>
-    <source id="videoSource" src="" type="video/mp4">
-    Your browser does not support the video tag.
-  </video>
-
-  <div id="annotations">Loading annotations...</div>
-
+  <h1>Video Sessions with Annotations</h1>
+  <div id="sessions">All Sessions</div>
   <script>
   const fs = require('fs');
   const path = require('path');
-  const { ipcRenderer } = require('electron');
 
   const annotationsDir = path.join(__dirname, 'annotations');
   const videosDir = path.join(__dirname, 'videos');
+  const metadataDir = path.join(__dirname, 'metadata');
+  const sessionContainer = document.getElementById('sessions');
 
-  window.onload = async () => {
-    ipcRenderer.on('video-start-timestamp', (event, timestamp) => {
-        console.log('Received timestamp:', timestamp);
-        videoStartTimestamp = timestamp;
-    });
-    const video = document.getElementById('videoPlayer');
-    const container = document.getElementById('annotations');
+  function getFilesByExt(dir, ext) {
+    return fs.readdirSync(dir)
+      .filter(file => file.endsWith(ext))
+      .reduce((acc, file) => {
+        const base = path.basename(file, ext);
+        acc[base] = {
+          name: file,
+          fullPath: path.join(dir, file)
+        };
+        return acc;
+      }, {});
+  }
 
-    function getLatestFile(dir, ext) {
-      const files = fs.readdirSync(dir)
-        .filter(f => f.endsWith(ext))
-        .sort()
-        .reverse(); // newest first
-      return files.length > 0 ? files[0] : null;
+  function loadSessions() {
+    const videoFiles = getFilesByExt(videosDir, '.mkv');
+    const annotationFiles = getFilesByExt(annotationsDir, '.json');
+    const metadataFiles = getFilesByExt(metadataDir, '.json');
+
+    // Convert objects to arrays for sorting
+    const videos = Object.values(videoFiles).sort((a, b) => a.ctimeMs - b.ctimeMs);
+    const annotations = Object.values(annotationFiles).sort((a, b) => a.ctimeMs - b.ctimeMs);
+    const metadataList = Object.values(metadataFiles).sort((a, b) => a.ctimeMs - b.ctimeMs);
+
+    const sessions = [];
+
+    const numSessions = Math.min(videos.length, annotations.length, metadataList.length);
+
+    for (let i = 0; i < numSessions; i++) {
+      let metadataRaw;
+      try {
+        metadataRaw = fs.readFileSync(metadataList[i].fullPath, 'utf8');
+      } catch {
+        continue;
+      }
+
+      let metadata;
+      try {
+        metadata = JSON.parse(metadataRaw);
+      } catch {
+        continue;
+      }
+
+      sessions.push({
+        video: videos[i],
+        annotation: annotations[i],
+        videoStartTimestamp: metadata.videoStartTimestamp || 0,
+        title: metadata.title || `Session ${i + 1}`,
+      });
     }
 
-    const latestAnnotation = getLatestFile(annotationsDir, '.json');
-    const latestVideo = getLatestFile(videosDir, '.mkv'); // change to '.mp4' if needed
+    // Sort by actual videoStartTimestamp inside metadata
+    sessions.sort((a, b) => a.videoStartTimestamp - b.videoStartTimestamp);
 
-    if (!latestAnnotation || !latestVideo) {
-      console.error('Missing latest annotation or video file.');
-      return;
-    }
+    return sessions.reverse();
+  }
 
-    const annotationPath = path.join(annotationsDir, latestAnnotation);
-    const videoPath = path.join(videosDir, latestVideo);
 
-    // Set video source
-    video.src = `videos/${latestVideo}`;
+  function createSession(session) {
+    const sessionDiv = document.createElement('div');
+    sessionDiv.className = 'session';
 
-    // Load annotations after videoStartTimestamp is known
-    fs.readFile(annotationPath, 'utf8', (err, data) => {
+    const heading = document.createElement('h2');
+
+    // Format the timestamp
+    const date = new Date(session.videoStartTimestamp);
+    const options = {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+      month: 'numeric',
+      day: 'numeric',
+      year: '2-digit'
+    };
+    const formattedTime = `${date.toLocaleTimeString(undefined, options)}`;
+
+    heading.textContent = `${session.title} – ${formattedTime}`;
+
+    const video = document.createElement('video');
+    video.controls = true;
+    video.src = `videos/${session.video.name}`;
+
+    const annotationDiv = document.createElement('div');
+    annotationDiv.innerHTML = `<em>Loading annotations...</em>`;
+
+    fs.readFile(session.annotation.fullPath, 'utf8', (err, data) => {
       if (err) {
-        console.error('Failed to load annotations:', err);
+        annotationDiv.innerHTML = `<strong>Error loading annotations</strong>`;
         return;
       }
 
-      const annotations = JSON.parse(data);
-      if (annotations.length === 0) {
-        console.warn('No annotations found.');
+      let annotations;
+      try {
+        annotations = JSON.parse(data);
+      } catch {
+        annotationDiv.innerHTML = `<strong>Invalid annotation format</strong>`;
         return;
       }
+
+      annotationDiv.innerHTML = '';
+      const videoStart = session.videoStartTimestamp;
 
       annotations.forEach(a => {
-        const offsetSeconds = (a.timestamp - videoStartTimestamp) / 1000;
-        const minutes = Math.floor(offsetSeconds / 60);
-        const seconds = Math.floor(offsetSeconds % 60);
-        const timeStr = `${minutes.toString().padStart(2,'0')}:${seconds.toString().padStart(2,'0')}`;
+        const offset = (a.timestamp - videoStart) / 1000;
+        const minutes = Math.floor(offset / 60);
+        const seconds = Math.floor(offset % 60);
+        const timeStr = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 
         const note = document.createElement('div');
         note.className = 'annotation';
         note.innerHTML = `<strong>${timeStr}</strong>: ${a.note}`;
-
         note.onclick = () => {
-          video.currentTime = offsetSeconds;
+          video.currentTime = offset;
           video.play();
         };
 
-        container.appendChild(note);
+        annotationDiv.appendChild(note);
       });
     });
+
+    sessionDiv.appendChild(heading);
+    sessionDiv.appendChild(video);
+    sessionDiv.appendChild(annotationDiv);
+    sessionContainer.appendChild(sessionDiv);
+  }
+
+  window.onload = () => {
+    const sessions = loadSessions();
+
+    if (sessions.length === 0) {
+      sessionContainer.innerHTML = '<p>No session triples found.</p>';
+      return;
+    }
+
+    sessions.forEach(createSession);
   };
 </script>
 
