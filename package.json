@@ -4,7 +4,8 @@
   "description": "Electron base app for gameplay annotation with live note-taking overlay.",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "debug": "electron . -- --debug"
   },
   "devDependencies": {
     "electron": "^25.2.0"

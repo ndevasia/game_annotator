@@ -2,6 +2,7 @@ const { app, BrowserWindow, globalShortcut, ipcMain } = require('electron');
 const fs = require('fs');
 const OBSWebSocket = require('obs-websocket-js');
 const obs = new OBSWebSocket.OBSWebSocket();
+const isDebug = process.argv.includes('--debug');
 
 function getFormattedTimestamp() {
   const now = new Date();
@@ -48,10 +49,6 @@ function createMainWindow() {
   });
 
   mainWindow.loadFile('index.html');
-  // mainWindow.webContents.on('did-finish-load', () => {
-  //   console.log('Sending videoStartTimestamp:', videoStartTimestamp);
-  //   mainWindow.webContents.send('video-start-timestamp', videoStartTimestamp);
-  // });
   mainWindow.webContents.openDevTools();
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -147,6 +144,11 @@ async function stopOBSRecording() {
 let isQuitting = false;
 
 app.whenReady().then(async () => {
+  if (isDebug) {
+    console.log('DEBUG MODE: launching main window only');
+    createMainWindow();
+    return;
+  }
   createStartWindow();
   await connectOBS();        // Wait for OBS to be ready and start recording
   createNoteWindow();        // Then open the overlay window
@@ -201,7 +203,7 @@ app.whenReady().then(async () => {
   }
 
 app.on('before-quit', async (event) => {
-  if (!isQuitting) {
+  if (!isQuitting  && !isDebug) {
     event.preventDefault(); // prevent immediate quit
     console.log('Gracefully stopping OBS before quitting...');
     
