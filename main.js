@@ -3,6 +3,10 @@ const fs = require('fs');
 const OBSWebSocket = require('obs-websocket-js');
 const obs = new OBSWebSocket.OBSWebSocket();
 const isDebug = process.argv.includes('--debug');
+const path = require('path');
+require('dotenv').config();
+const AWSManager = require('./backend/aws.js');
+const awsManager = new AWSManager();
 
 function getFormattedTimestamp() {
   const now = new Date();
@@ -17,26 +21,70 @@ function getFormattedTimestamp() {
 }
 
 const timestamp = getFormattedTimestamp();
-const annotationsFilePath = `annotations/${timestamp}.json`;
-const sessionsFilePath = `metadata/${timestamp}.json`;
+const configPath = `config.json`;
 
-if (!fs.existsSync(annotationsFilePath)) {
-  fs.writeFileSync(annotationsFilePath, JSON.stringify([]));
+let userConfig = {
+  username: ''
+};
+if (fs.existsSync(configPath)) {
+  userConfig = JSON.parse(fs.readFileSync(configPath));
 }
 
-if (!fs.existsSync(sessionsFilePath)) {
-  fs.writeFileSync(sessionsFilePath, JSON.stringify([]));
-}
+// if (!fs.existsSync(annotationsFilePath)) {
+//   fs.writeFileSync(annotationsFilePath, JSON.stringify([]));
+// }
+
+// if (!fs.existsSync(sessionsFilePath)) {
+//   fs.writeFileSync(sessionsFilePath, JSON.stringify([]));
+// }
 
 let noteWindow = null;
 let mainWindow = null;
 let startWindow = null;
+let usernamePromptWindow = null;
 let videoStartTimestamp = null;
 let sessionMetadata = {
   title: null,
-  annotationPath: annotationsFilePath,
   videoStartTimestamp: null,
 };
+
+function createUsernamePrompt() {
+  return new Promise((resolve) => {
+    const promptWindow = new BrowserWindow({
+      width: 400,
+      height: 200,
+      modal: true,
+      show: false,
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false,
+      }
+    });
+
+    promptWindow.loadFile('username.html');
+
+    promptWindow.once('ready-to-show', () => {
+      promptWindow.show();
+    });
+
+    ipcMain.once('username-submitted', async (event, username) => {
+      userConfig.username = username;
+
+      // Save to config.json
+      const configToWrite = { username };
+      fs.writeFileSync(configPath, JSON.stringify(configToWrite, null, 2));
+      console.log('Saved username:', username);
+
+      awsManager.setUsername(username)
+
+      promptWindow.close();
+      resolve();
+    });
+
+  });
+}
+
+
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({
@@ -141,9 +189,41 @@ async function stopOBSRecording() {
   }
 }
 
+async function uploadToS3UsingPresignedUrl(filePath) {
+  const fileName = path.basename(filePath);
+
+  // Step 1: Ask the server for a presigned URL
+  const response = await fetch('http://localhost:5000/generate-presigned-url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fileName }),
+  });
+
+  const { url, s3_key } = await response.json();
+
+  // Step 2: Upload file using PUT to S3
+  const fileBuffer = fs.readFileSync(filePath);
+  await fetch(url, {
+    method: 'PUT',
+    body: fileBuffer,
+    headers: {
+      'Content-Type': 'video/mkv', // or whatever your file type is
+    },
+  });
+
+  console.log('Upload complete:', s3_key);
+}
+
+
 let isQuitting = false;
 
 app.whenReady().then(async () => {
+  console.log("A: App starting");
+  if (!userConfig.username) {
+    console.log("Username required to proceed");
+   await createUsernamePrompt();
+  } 
+  console.log("Username is ", userConfig.username)
   if (isDebug) {
     console.log('DEBUG MODE: launching main window only');
     createMainWindow();
@@ -167,10 +247,7 @@ app.whenReady().then(async () => {
 
   ipcMain.on('save-annotation', (event, annotation) => {
     try {
-      const data = fs.readFileSync(annotationsFilePath);
-      const annotations = JSON.parse(data);
-      annotations.push(annotation);
-      fs.writeFileSync(annotationsFilePath, JSON.stringify(annotations, null, 2));
+      awsManager.saveAnnotationToS3(userConfig.username, annotation, timestamp)
     } catch (err) {
       console.error('Error saving annotation:', err);
     }
@@ -191,15 +268,24 @@ app.whenReady().then(async () => {
       startWindow.hide();
     }
   });
+  ipcMain.on('hide-username', () => {
+    if (usernamePromptWindow && usernamePromptWindow.isVisible()) {
+      usernamePromptWindow.hide();
+    }
+  });
   ipcMain.handle('get-video-start', () => {
     return videoStartTimestamp;
     });
   });
   function maybeWriteSessionMetadata() {
     if (sessionMetadata.title && sessionMetadata.videoStartTimestamp) {
-      fs.writeFileSync(sessionsFilePath, JSON.stringify(sessionMetadata, null, 3));
-      console.log('Session metadata written:', sessionMetadata);
+      awsManager.saveMetadata(userConfig.username, sessionMetadata.title, timestamap, sessionMetadata.videoStartTimestamp)
     }
+  }
+  function maybeWriteUserData() {
+    const configToWrite = { username: userConfig.username };
+    fs.writeFileSync(configPath, JSON.stringify(configToWrite, null, 1));
+    console.log('Username set:', userConfig.username);
   }
 
 app.on('before-quit', async (event) => {
@@ -221,6 +307,8 @@ app.on('before-quit', async (event) => {
       noteWindow.close();
     }
 
+    // ⬇️ Call your S3 bucket logic for video recording here
+    // await uploadToS3UsingPresignedUrl(annotationsFilePath);
     // Now launch main window (for playback)
      createMainWindow();
   }
