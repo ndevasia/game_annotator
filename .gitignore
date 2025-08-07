@@ -6,3 +6,4 @@ npm-debug.log
 videos/
 annotations/
 metadata/
+config.json
