@@ -1,18 +1,13 @@
-// aws.js
 const AWS = require('aws-sdk');
-const { accessSync } = require('original-fs');
 require('dotenv').config({ path: __dirname + '/.env' }); // __dirname resolves to backend/
+const SessionMetadata = require('./metadata.js')
 
 class AWSManager {
   constructor() {
     const bucket = process.env.AWS_BUCKET_NAME
-    console.log(bucket)
     const region = process.env.AWS_REGION
-    console.log(region)
     const accessKeyId = process.env.AWS_ACCESS_KEY_ID
-    console.log(accessKeyId)
     const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY
-    console.log(secretAccessKey)
     this.bucket = bucket;
     this.s3 = new AWS.S3({
       region: region,
@@ -21,7 +16,7 @@ class AWSManager {
     });
   }
 
-  async setUsername(username) {
+  async createFileStructure(username) {
     this.username = username;
     const baseKey = `${username}/`;
     const folders = ['metadata/', 'annotations/', 'videos/'];
@@ -65,6 +60,22 @@ class AWSManager {
 //         }
 //   }
 
+    async loadJSON(username, fileTimestamp, folderName) {
+        const key = `${username}/${folderName}/${fileTimestamp}.json`;
+        const params = {
+            Bucket: this.bucket,
+            Key: key,
+        };
+
+        try {
+            const data = await this.s3.getObject(params).promise();
+            return JSON.parse(data.Body.toString('utf-8'));
+        } catch (err) {
+            console.error(`❌ Failed to load ${key}:`, err);
+            return null;
+        }
+    }
+
     async uploadFile(buffer, username, fileTimestamp, folderName) {
         const key = `${username}/${folderName}/${fileTimestamp}.json`;
         console.log(`Attempting to upload to s3://${this.bucket}/${key}`);
@@ -78,35 +89,40 @@ class AWSManager {
         console.log(`✅ Uploaded to s3://${this.bucket}/${key}`);
     }
 
-  async saveMetadata(username, title, fileTimestamp, videoStartTimestamp) {
+  async saveMetadata(sessionMetadata) {
+    const username = sessionMetadata.getUsername();
+    const fileTimestamp = sessionMetadata.getFileTimestamp();
+    const key = `${username}/metadata/${fileTimestamp}.json`;
+
     try {
-        try {
+      try {
         const s3Object = await this.s3.getObject({
-            Bucket: this.bucket,
-            Key: `${username}/metadata/${fileTimestamp}`,
+          Bucket: this.bucket,
+          Key: key,
         }).promise();
 
         const body = s3Object.Body.toString();
-        sessionInfo = JSON.parse(body);
-        } catch (err) {
+        const sessionInfo = JSON.parse(body);
+        console.log('✅ Existing session metadata loaded from S3:', sessionInfo);
+      } catch (err) {
         if (err.code === 'NoSuchKey') {
-            console.log('File not found on S3 — preparing to write session metadata.');
+          console.log('🆕 File not found on S3 — preparing to write session metadata.');
         } else {
-            throw err;
+          throw err;
         }
-    }
-    let sessionConfig = {
-        title: title,
-        fileTimestamp: fileTimestamp,
-        videoStartTimestamp: videoStartTimestamp
-    }
-    // Step 3: Convert to buffer
-    const buffer = Buffer.from(JSON.stringify(sessionConfig, null, 3));
-    // Step 4: Upload to S3
-        await this.uploadFile(buffer, fileName, 'metadata');
-        console.log('✅ Metadata saved to S3');
+      }
+
+      const metadataBuffer = Buffer.from(JSON.stringify(sessionMetadata.toJSON()));
+      
+      await this.s3.upload({
+        Bucket: this.bucket,
+        Key: key,
+        Body: metadataBuffer,
+      }).promise();
+
+      console.log(`✅ Session metadata uploaded to s3://${this.bucket}/${key}`);
     } catch (err) {
-        console.error('❌ Error saving metadata to S3:', err);
+      console.error('❌ Failed to save session metadata to S3:', err);
     }
   }
 
