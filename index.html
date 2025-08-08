@@ -174,13 +174,7 @@
     return;
   }
 
-  // ipcRenderer.on('client-data', async (event, client) => {
-  // console.log('Received client:', client);
-
-  // if (!client) {
-  //   console.log("Did not receive client");
-  //   return;
-  // }
+  // this is a little ugly
   const client = new AWSManager();
   try {
     const sessions = await client.loadSessionsFromS3(username);

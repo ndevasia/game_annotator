@@ -332,8 +332,6 @@ app.on('before-quit', async (event) => {
       noteWindow.close();
     }
 
-    // ⬇️ Call your S3 bucket logic for video recording here
-    // await uploadToS3UsingPresignedUrl(annotationsFilePath);
     // Now launch main window (for playback)
      createMainWindow();
   }
