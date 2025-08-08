@@ -9,6 +9,7 @@ const SessionMetadata = require('./backend/metadata.js')
 const awsManager = new AWSManager();
 const sessionMetadata = new SessionMetadata();
 
+// Instead of this, write it as an env variable and not a weird one off file
 const configPath = `backend/config.json`;
 
 if (fs.existsSync(configPath)) {
@@ -70,6 +71,13 @@ function createMainWindow() {
 
   mainWindow.loadFile('index.html');
   mainWindow.webContents.openDevTools();
+  mainWindow.webContents.on('did-finish-load', () => {
+    // Send sessionMetadata object or whatever data you want
+    console.log("Sending username to index.html ", sessionMetadata.getUsername());
+    mainWindow.webContents.send('session-data', sessionMetadata.getUsername());
+    console.log("Sending client to index.html ", awsManager.getClient());
+    mainWindow.webContents.send('client-data', awsManager.getClient());
+  });
   mainWindow.on('closed', () => {
     mainWindow = null;
     app.quit();
@@ -133,6 +141,29 @@ function createStartWindow() {
 
 }
 
+// Attach this ONCE during your app initialization
+function attachOBSRecordingListener() {
+  obs.on('RecordStateChanged', async (data) => {
+    console.log('🎥 OBS RecordStateChanged event:', data);
+
+    // Only trigger on fully stopped recordings with a valid file path
+    if (data.outputState === 'OBS_WEBSOCKET_OUTPUT_STOPPED' && data.outputPath) {
+      const filePath = data.outputPath;
+      console.log(`✅ Recording finalized at: ${filePath}`);
+
+      try {
+        const fileBuffer = fs.readFileSync(filePath);
+        await awsManager.uploadFile(fileBuffer, sessionMetadata.getUsername(), sessionMetadata.getFileTimestamp(), 'videos');
+        console.log('✅ Video uploaded to S3.');
+      } catch (err) {
+        console.error('❌ Failed to upload video:', err);
+      }
+    }
+  });
+
+  console.log('📡 OBS recording listener attached');
+}
+
 async function connectOBS() {
   try {
     await obs.connect();
@@ -149,17 +180,69 @@ async function connectOBS() {
   }
 }
 
-async function stopOBSRecording() {
-  try {
-    const { outputActive } = await obs.call('GetRecordStatus');
-    if (outputActive) {
-      await obs.call('StopRecord')
-      console.log('OBS recording stopped');
+async function stopOBSRecording(timeoutMs = 60000) {
+  return new Promise(async (resolve, reject) => {
+    let timeoutId;
+
+    try {
+      const { outputActive } = await obs.call('GetRecordStatus');
+      if (!outputActive) {
+        console.log('⚠ No active recording to stop.');
+        return resolve();
+      }
+
+      console.log('🛑 Sending StopRecord and waiting for STOPPED event...');
+
+      const onStopped = async (data) => {
+        if (data.outputState === 'OBS_WEBSOCKET_OUTPUT_STOPPED') {
+          clearTimeout(timeoutId);
+          obs.off('RecordStateChanged', onStopped); // cleanup
+
+          if (!data.outputPath) {
+            console.warn('⚠ Recording stopped but no file path was returned.');
+            return resolve();
+          }
+
+          try {
+            // 1️⃣ Upload to S3
+            const fileBuffer = fs.readFileSync(data.outputPath);
+            await awsManager.uploadFile(
+              fileBuffer,
+              sessionMetadata.getUsername(),
+              sessionMetadata.getFileTimestamp(),
+              'videos'
+            );
+            console.log('✅ Video uploaded to S3.');
+
+            // 2️⃣ Delete local file
+            await fs.promises.unlink(data.outputPath);
+            console.log(`🗑 Deleted local file: ${data.outputPath}`);
+          } catch (err) {
+            console.error('❌ Failed during upload/delete process:', err);
+          }
+
+          resolve();
+        }
+      };
+
+      // Fail-safe timeout
+      timeoutId = setTimeout(() => {
+        obs.off('RecordStateChanged', onStopped);
+        console.error(`⏳ Timed out waiting for STOPPED event after ${timeoutMs}ms.`);
+        resolve(); // still resolve so app can exit
+      }, timeoutMs);
+
+      obs.on('RecordStateChanged', onStopped);
+      await obs.call('StopRecord');
+
+    } catch (error) {
+      clearTimeout(timeoutId);
+      reject(error);
     }
-  } catch (error) {
-    console.error('Failed to stop recording:', error);
-  }
+  });
 }
+
+
 
 let isQuitting = false;
 
@@ -175,6 +258,7 @@ app.whenReady().then(async () => {
     createMainWindow();
     return;
   }
+  attachOBSRecordingListener();
   createStartWindow();
   await connectOBS();        // Wait for OBS to be ready and start recording
   createNoteWindow();        // Then open the overlay window

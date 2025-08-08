@@ -37,6 +37,8 @@
   <script>
   const fs = require('fs');
   const path = require('path');
+  const { ipcRenderer } = require('electron');
+  const AWSManager = require('./backend/aws.js');
 
   const annotationsDir = path.join(__dirname, 'annotations');
   const videosDir = path.join(__dirname, 'videos');
@@ -55,6 +57,7 @@
         return acc;
       }, {});
   }
+
 
   function loadSessions() {
     const videoFiles = getFilesByExt(videosDir, '.mkv');
@@ -101,47 +104,36 @@
 
 
   function createSession(session) {
-    const sessionDiv = document.createElement('div');
-    sessionDiv.className = 'session';
+  const sessionDiv = document.createElement('div');
+  sessionDiv.className = 'session';
 
-    const heading = document.createElement('h2');
+  // --- Heading ---
+  const heading = document.createElement('h2');
+  const date = new Date(session.videoStartTimestamp);
+  const options = {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+    month: 'numeric',
+    day: 'numeric',
+    year: '2-digit'
+  };
+  const formattedTime = date.toLocaleTimeString(undefined, options);
+  heading.textContent = `${session.title} – ${formattedTime}`;
 
-    // Format the timestamp
-    const date = new Date(session.videoStartTimestamp);
-    const options = {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: true,
-      month: 'numeric',
-      day: 'numeric',
-      year: '2-digit'
-    };
-    const formattedTime = `${date.toLocaleTimeString(undefined, options)}`;
+  // --- Video ---
+  const video = document.createElement('video');
+  video.controls = true;
+  video.src = session.videoUrl; // ✅ S3 signed URL
 
-    heading.textContent = `${session.title} – ${formattedTime}`;
+  // --- Annotations ---
+  const annotationDiv = document.createElement('div');
+  annotationDiv.innerHTML = `<em>Loading annotations...</em>`;
 
-    const video = document.createElement('video');
-    video.controls = true;
-    video.src = `videos/${session.video.name}`;
-
-    const annotationDiv = document.createElement('div');
-    annotationDiv.innerHTML = `<em>Loading annotations...</em>`;
-
-    fs.readFile(session.annotation.fullPath, 'utf8', (err, data) => {
-      if (err) {
-        annotationDiv.innerHTML = `<strong>Error loading annotations</strong>`;
-        return;
-      }
-
-      let annotations;
-      try {
-        annotations = JSON.parse(data);
-      } catch {
-        annotationDiv.innerHTML = `<strong>Invalid annotation format</strong>`;
-        return;
-      }
-
+  fetch(session.annotationUrl)
+    .then(res => res.json())
+    .then(annotations => {
       annotationDiv.innerHTML = '';
       const videoStart = session.videoStartTimestamp;
 
@@ -161,24 +153,53 @@
 
         annotationDiv.appendChild(note);
       });
+    })
+    .catch(err => {
+      annotationDiv.innerHTML = `<strong>Error loading annotations</strong>`;
+      console.error('Error fetching annotations:', err);
     });
 
-    sessionDiv.appendChild(heading);
-    sessionDiv.appendChild(video);
-    sessionDiv.appendChild(annotationDiv);
-    sessionContainer.appendChild(sessionDiv);
+  // --- Append to DOM ---
+  sessionDiv.appendChild(heading);
+  sessionDiv.appendChild(video);
+  sessionDiv.appendChild(annotationDiv);
+  sessionContainer.appendChild(sessionDiv);
+}
+
+  ipcRenderer.on('session-data', async (event, username) => {
+  console.log('Received session metadata:', username);
+
+  if (!username) {
+    sessionContainer.innerHTML = '<p>No username found in session data.</p>';
+    return;
   }
 
-  window.onload = () => {
-    const sessions = loadSessions();
+  // ipcRenderer.on('client-data', async (event, client) => {
+  // console.log('Received client:', client);
+
+  // if (!client) {
+  //   console.log("Did not receive client");
+  //   return;
+  // }
+  const client = new AWSManager();
+  try {
+    const sessions = await client.loadSessionsFromS3(username);
+    console.log("Loaded sessions from s3 ", sessions)
 
     if (sessions.length === 0) {
-      sessionContainer.innerHTML = '<p>No session triples found.</p>';
-      return;
+      sessionContainer.innerHTML = '<p>No sessions found in S3.</p>';
     }
 
+    // Clear container before adding
+    sessionContainer.innerHTML = '';
+
     sessions.forEach(createSession);
-  };
+
+  } catch (err) {
+    console.error('Error loading sessions from S3:', err);
+    sessionContainer.innerHTML = '<p>Error loading sessions.</p>';
+  }});
+  
 </script>
 
 </body>
