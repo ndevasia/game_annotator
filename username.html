@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <style>
+      body {
+        font-family: sans-serif;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+        background-color: #f9f9f9;
+      }
+
+      form {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        background-color: white;
+        padding: 20px;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+      }
+
+      input[type="text"] {
+        padding: 8px;
+        font-size: 16px;
+        width: 250px;
+      }
+
+      button {
+        padding: 8px;
+        font-size: 16px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <form id="usernameForm">
+      <input type="text" id="usernameInput" placeholder="Enter your username" required />
+      <button type="submit">Submit</button>
+    </form>
+
+    <script>
+      const { ipcRenderer } = require('electron');
+
+      document.getElementById('usernameForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const username = document.getElementById('usernameInput').value.trim();
+        if (username) {
+          ipcRenderer.send('username-submitted', username);
+        }
+      });
+    </script>
+  </body>
+</html>

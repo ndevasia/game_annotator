@@ -3,40 +3,61 @@ const fs = require('fs');
 const OBSWebSocket = require('obs-websocket-js');
 const obs = new OBSWebSocket.OBSWebSocket();
 const isDebug = process.argv.includes('--debug');
+const path = require('path');
+const AWSManager = require('./backend/aws.js');
+const SessionMetadata = require('./backend/metadata.js')
+const awsManager = new AWSManager();
+const sessionMetadata = new SessionMetadata();
 
-function getFormattedTimestamp() {
-  const now = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  const yyyy = now.getFullYear();
-  const MM = pad(now.getMonth() + 1);
-  const dd = pad(now.getDate());
-  const hh = pad(now.getHours());
-  const mm = pad(now.getMinutes());
-  const ss = pad(now.getSeconds());
-  return `${yyyy}-${MM}-${dd} ${hh}-${mm}-${ss}`;
-}
+// Instead of this, write it as an env variable and not a weird one off file
+const configPath = `backend/config.json`;
 
-const timestamp = getFormattedTimestamp();
-const annotationsFilePath = `annotations/${timestamp}.json`;
-const sessionsFilePath = `metadata/${timestamp}.json`;
-
-if (!fs.existsSync(annotationsFilePath)) {
-  fs.writeFileSync(annotationsFilePath, JSON.stringify([]));
-}
-
-if (!fs.existsSync(sessionsFilePath)) {
-  fs.writeFileSync(sessionsFilePath, JSON.stringify([]));
+if (fs.existsSync(configPath)) {
+  userConfig = JSON.parse(fs.readFileSync(configPath));
 }
 
 let noteWindow = null;
 let mainWindow = null;
 let startWindow = null;
-let videoStartTimestamp = null;
-let sessionMetadata = {
-  title: null,
-  annotationPath: annotationsFilePath,
-  videoStartTimestamp: null,
-};
+let usernamePromptWindow = null;
+
+function createUsernamePrompt() {
+  return new Promise((resolve) => {
+    const promptWindow = new BrowserWindow({
+      width: 400,
+      height: 200,
+      modal: true,
+      show: false,
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false,
+      }
+    });
+
+    promptWindow.loadFile('username.html');
+
+    promptWindow.once('ready-to-show', () => {
+      promptWindow.show();
+    });
+
+    ipcMain.once('username-submitted', async (event, username) => {
+      sessionMetadata.setUsername(username);
+
+      // Save to config.json
+      const configToWrite = { username };
+      fs.writeFileSync(configPath, JSON.stringify(configToWrite, null, 2));
+      console.log('Saved username:', username);
+
+      awsManager.createFileStructure(username)
+
+      promptWindow.close();
+      resolve();
+    });
+
+  });
+}
+
+
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({
@@ -50,6 +71,13 @@ function createMainWindow() {
 
   mainWindow.loadFile('index.html');
   mainWindow.webContents.openDevTools();
+  mainWindow.webContents.on('did-finish-load', () => {
+    // Send sessionMetadata object or whatever data you want
+    console.log("Sending username to index.html ", sessionMetadata.getUsername());
+    mainWindow.webContents.send('session-data', sessionMetadata.getUsername());
+    console.log("Sending client to index.html ", awsManager.getClient());
+    mainWindow.webContents.send('client-data', awsManager.getClient());
+  });
   mainWindow.on('closed', () => {
     mainWindow = null;
     app.quit();
@@ -113,6 +141,29 @@ function createStartWindow() {
 
 }
 
+// Attach this ONCE during your app initialization
+function attachOBSRecordingListener() {
+  obs.on('RecordStateChanged', async (data) => {
+    console.log('🎥 OBS RecordStateChanged event:', data);
+
+    // Only trigger on fully stopped recordings with a valid file path
+    if (data.outputState === 'OBS_WEBSOCKET_OUTPUT_STOPPED' && data.outputPath) {
+      const filePath = data.outputPath;
+      console.log(`✅ Recording finalized at: ${filePath}`);
+
+      try {
+        const fileBuffer = fs.readFileSync(filePath);
+        await awsManager.uploadFile(fileBuffer, sessionMetadata.getUsername(), sessionMetadata.getFileTimestamp(), 'videos');
+        console.log('✅ Video uploaded to S3.');
+      } catch (err) {
+        console.error('❌ Failed to upload video:', err);
+      }
+    }
+  });
+
+  console.log('📡 OBS recording listener attached');
+}
+
 async function connectOBS() {
   try {
     await obs.connect();
@@ -120,7 +171,7 @@ async function connectOBS() {
     const { outputActive } = await obs.call('GetRecordStatus');
     if (!outputActive) {
       await obs.call('StartRecord');
-      sessionMetadata.videoStartTimestamp = Date.now();
+      sessionMetadata.setVideoStartTimestamp(Date.now());
       maybeWriteSessionMetadata();
       console.log('OBS recording started');
     }
@@ -129,26 +180,85 @@ async function connectOBS() {
   }
 }
 
-async function stopOBSRecording() {
-  try {
-    const { outputActive } = await obs.call('GetRecordStatus');
-    if (outputActive) {
-      await obs.call('StopRecord')
-      console.log('OBS recording stopped');
+async function stopOBSRecording(timeoutMs = 60000) {
+  return new Promise(async (resolve, reject) => {
+    let timeoutId;
+
+    try {
+      const { outputActive } = await obs.call('GetRecordStatus');
+      if (!outputActive) {
+        console.log('⚠ No active recording to stop.');
+        return resolve();
+      }
+
+      console.log('🛑 Sending StopRecord and waiting for STOPPED event...');
+
+      const onStopped = async (data) => {
+        if (data.outputState === 'OBS_WEBSOCKET_OUTPUT_STOPPED') {
+          clearTimeout(timeoutId);
+          obs.off('RecordStateChanged', onStopped); // cleanup
+
+          if (!data.outputPath) {
+            console.warn('⚠ Recording stopped but no file path was returned.');
+            return resolve();
+          }
+
+          try {
+            // 1️⃣ Upload to S3
+            const fileBuffer = fs.readFileSync(data.outputPath);
+            await awsManager.uploadFile(
+              fileBuffer,
+              sessionMetadata.getUsername(),
+              sessionMetadata.getFileTimestamp(),
+              'videos'
+            );
+            console.log('✅ Video uploaded to S3.');
+
+            // 2️⃣ Delete local file
+            await fs.promises.unlink(data.outputPath);
+            console.log(`🗑 Deleted local file: ${data.outputPath}`);
+          } catch (err) {
+            console.error('❌ Failed during upload/delete process:', err);
+          }
+
+          resolve();
+        }
+      };
+
+      // Fail-safe timeout
+      timeoutId = setTimeout(() => {
+        obs.off('RecordStateChanged', onStopped);
+        console.error(`⏳ Timed out waiting for STOPPED event after ${timeoutMs}ms.`);
+        resolve(); // still resolve so app can exit
+      }, timeoutMs);
+
+      obs.on('RecordStateChanged', onStopped);
+      await obs.call('StopRecord');
+
+    } catch (error) {
+      clearTimeout(timeoutId);
+      reject(error);
     }
-  } catch (error) {
-    console.error('Failed to stop recording:', error);
-  }
+  });
 }
+
+
 
 let isQuitting = false;
 
 app.whenReady().then(async () => {
+  console.log("A: App starting");
+  if (!sessionMetadata.getUsername()) {
+    console.log("Username required to proceed");
+   await createUsernamePrompt();
+  } 
+  console.log("Username is ", sessionMetadata.getUsername())
   if (isDebug) {
     console.log('DEBUG MODE: launching main window only');
     createMainWindow();
     return;
   }
+  attachOBSRecordingListener();
   createStartWindow();
   await connectOBS();        // Wait for OBS to be ready and start recording
   createNoteWindow();        // Then open the overlay window
@@ -167,16 +277,13 @@ app.whenReady().then(async () => {
 
   ipcMain.on('save-annotation', (event, annotation) => {
     try {
-      const data = fs.readFileSync(annotationsFilePath);
-      const annotations = JSON.parse(data);
-      annotations.push(annotation);
-      fs.writeFileSync(annotationsFilePath, JSON.stringify(annotations, null, 2));
+      awsManager.saveAnnotationToS3(sessionMetadata.getUsername(), annotation, sessionMetadata.getFileTimestamp())
     } catch (err) {
       console.error('Error saving annotation:', err);
     }
   });
   ipcMain.on('save-start', (event, { title }) => {
-    sessionMetadata.title = title;
+    sessionMetadata.setTitle(title)
     maybeWriteSessionMetadata();
   });
 
@@ -191,14 +298,18 @@ app.whenReady().then(async () => {
       startWindow.hide();
     }
   });
+  ipcMain.on('hide-username', () => {
+    if (usernamePromptWindow && usernamePromptWindow.isVisible()) {
+      usernamePromptWindow.hide();
+    }
+  });
   ipcMain.handle('get-video-start', () => {
     return videoStartTimestamp;
     });
   });
   function maybeWriteSessionMetadata() {
-    if (sessionMetadata.title && sessionMetadata.videoStartTimestamp) {
-      fs.writeFileSync(sessionsFilePath, JSON.stringify(sessionMetadata, null, 3));
-      console.log('Session metadata written:', sessionMetadata);
+    if (sessionMetadata.getTitle() && sessionMetadata.getVideoStartTimestamp()) {
+      awsManager.saveMetadata(sessionMetadata)
     }
   }
 
