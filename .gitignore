@@ -8,3 +8,5 @@ annotations/
 metadata/
 config.json
 .vscode/
+dist/
+icons/
