@@ -1,12 +1,12 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Note Annotation</title>
   <style>
     body {
       margin: 0;
-      background-color: rgba(0, 0, 0, 0.5); /* Semi-transparent dark overlay */
+      background-color: rgba(0, 0, 0, 0); /* Semi-transparent dark overlay */
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -14,8 +14,14 @@
       color: white;
       font-family: sans-serif;
     }
-    textarea {
+    #annotation-ui {
       width: 90%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    textarea {
+      width: 100%;
       height: 100px;
       font-size: 16px;
       padding: 10px;
@@ -38,19 +44,64 @@
   </style>
 </head>
 <body>
-  <textarea id="note" placeholder="Type your annotation..."></textarea>
+  <div id="annotation-ui">
+    <textarea id="note" placeholder="Type your annotation..."></textarea>
     <button onclick="saveNote()">Save</button>
+  </div>
 
   <script>
-  const { ipcRenderer } = require('electron');
+    const { ipcRenderer } = require('electron');
 
-  function saveNote() {
-    const note = document.getElementById('note').value;
-    const timestamp = Date.now();
-    ipcRenderer.send('save-annotation', { note, timestamp });
-    document.getElementById('note').value = '';
-    ipcRenderer.send('hide-overlay');
-  }
-</script>
+    function saveNote() {
+      const note = document.getElementById('note').value;
+      const timestamp = Date.now();
+      ipcRenderer.send('save-annotation', { note, timestamp });
+      document.getElementById('note').value = '';
+      ipcRenderer.send('hide-overlay');
+    }
+
+    ipcRenderer.on('emoji-reaction', (event, emoji) => {
+      // Hide annotation UI
+      const annotationUI = document.getElementById('annotation-ui');
+      if (annotationUI) annotationUI.style.display = 'none';
+
+      // Show emoji reaction on overlay
+      showEmojiReaction(emoji);
+    });
+    ipcRenderer.on('show-annotation-ui', () => {
+      const annotationUI = document.getElementById('annotation-ui');
+      if (annotationUI) annotationUI.style.display = 'flex';
+    });
+
+
+    function showEmojiReaction(emoji) {
+      const emojiDiv = document.createElement('div');
+      emojiDiv.textContent = emoji;
+      emojiDiv.style.position = 'fixed';
+      emojiDiv.style.top = '20%';
+      emojiDiv.style.left = '50%';
+      emojiDiv.style.transform = 'translateX(-50%)';
+      emojiDiv.style.fontSize = '5rem';
+      emojiDiv.style.opacity = '1';
+      emojiDiv.style.transition = 'opacity 1.5s ease-out';
+      emojiDiv.style.pointerEvents = 'none';     // Prevent interaction
+      emojiDiv.style.background = 'none';        // No background color
+      emojiDiv.style.willChange = 'opacity';     // Optimize opacity transition
+      emojiDiv.style.userSelect = 'none';        // Prevent text selection
+
+      document.body.appendChild(emojiDiv);
+
+      setTimeout(() => {
+        emojiDiv.style.opacity = '0';
+      }, 500);
+
+      setTimeout(() => {
+        if (emojiDiv.parentNode) {
+          emojiDiv.parentNode.removeChild(emojiDiv);
+        }
+      }, 2000);
+    }
+
+  </script>
 </body>
 </html>

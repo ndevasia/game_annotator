@@ -12,6 +12,15 @@ const sessionMetadata = new SessionMetadata();
 // Instead of this, write it as an env variable and not a weird one off file
 const configPath = `backend/config.json`;
 
+const emojiReactions = {
+  'CommandOrControl+1': '👍',  // Like
+  'CommandOrControl+2': '❤️',  // Love
+  'CommandOrControl+3': '😂',  // Haha
+  'CommandOrControl+4': '😮',  // Wow
+  'CommandOrControl+5': '😢',  // Sad
+  'CommandOrControl+6': '😠',  // Angry
+};
+
 if (fs.existsSync(configPath)) {
   userConfig = JSON.parse(fs.readFileSync(configPath));
 }
@@ -57,8 +66,6 @@ function createUsernamePrompt() {
   });
 }
 
-
-
 function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 800,
@@ -75,8 +82,6 @@ function createMainWindow() {
     // Send sessionMetadata object or whatever data you want
     console.log("Sending username to index.html ", sessionMetadata.getUsername());
     mainWindow.webContents.send('session-data', sessionMetadata.getUsername());
-    console.log("Sending client to index.html ", awsManager.getClient());
-    mainWindow.webContents.send('client-data', awsManager.getClient());
   });
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -268,7 +273,20 @@ app.whenReady().then(async () => {
       noteWindow.show();
       noteWindow.focus();
     }
+    if (noteWindow) {
+      noteWindow.webContents.send('show-annotation-ui');
+    }
   });
+
+  for (const [shortcut, emoji] of Object.entries(emojiReactions)) {
+    globalShortcut.register(shortcut, () => {
+      if (noteWindow) {
+        if (!noteWindow.isVisible()) noteWindow.show();
+        noteWindow.webContents.send('emoji-reaction', emoji);
+        awsManager.saveAnnotationToS3(sessionMetadata.getUsername(), { note: emoji, timestamp: Date.now() }, sessionMetadata.getFileTimestamp())
+      }
+    });
+  }
 
   globalShortcut.register('CommandOrControl+Shift+Q', async () => {
     console.log('Quit hotkey pressed: stopping recording');
