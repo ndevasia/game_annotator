@@ -30,6 +30,7 @@ let noteWindow = null;
 let mainWindow = null;
 let startWindow = null;
 let usernamePromptWindow = null;
+let emojiWindow = null;
 
 function createUsernamePrompt() {
   return new Promise((resolve) => {
@@ -87,6 +88,36 @@ function createMainWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
     app.quit();
+  });
+}
+
+function createEmojiWindow() {
+  if (emojiWindow) return;
+
+  emojiWindow = new BrowserWindow({
+    width: 400,
+    height: 200,
+    alwaysOnTop: true,
+    transparent: true,
+    frame: false,
+    resizable: false,
+    skipTaskbar: true,
+    focusable: false,          // click-through
+    show: true,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    }
+  });
+
+  emojiWindow.loadFile('emoji.html');
+
+  emojiWindow.once('ready-to-show', () => {
+    console.log('Emoji overlay ready');
+  });
+
+  emojiWindow.on('closed', () => {
+    emojiWindow = null;
   });
 }
 
@@ -273,6 +304,7 @@ app.whenReady().then(async () => {
   createStartWindow();
   await connectOBS();        // Wait for OBS to be ready and start recording
   createNoteWindow();        // Then open the overlay window
+  createEmojiWindow();
 
   globalShortcut.register('CommandOrControl+Shift+N', () => {
     if (noteWindow && !noteWindow.isVisible()) {
@@ -287,13 +319,17 @@ app.whenReady().then(async () => {
 
   for (const [shortcut, emoji] of Object.entries(emojiReactions)) {
     globalShortcut.register(shortcut, () => {
-      if (noteWindow) {
-        if (!noteWindow.isVisible()) noteWindow.show();
-        noteWindow.webContents.send('emoji-reaction', emoji);
-        awsManager.saveAnnotationToS3(sessionMetadata.getUsername(), { note: emoji, timestamp: Date.now() }, sessionMetadata.getFileTimestamp())
+      if (emojiWindow) {
+        emojiWindow.webContents.send('show-emoji', emoji);
       }
+      awsManager.saveAnnotationToS3(
+        sessionMetadata.getUsername(),
+        { note: emoji, timestamp: Date.now() },
+        sessionMetadata.getFileTimestamp()
+      );
     });
   }
+
 
   globalShortcut.register('CommandOrControl+Shift+Q', async () => {
     console.log('Quit hotkey pressed: stopping recording');

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Emoji Overlay</title>
+  <style>
+    body {
+      margin: 0;
+      background: transparent;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .emoji {
+      position: fixed;
+      top: 20%;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 5rem;
+      opacity: 1;
+      transition: opacity 1.5s ease-out;
+      user-select: none;
+    }
+  </style>
+</head>
+<body>
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    ipcRenderer.on('show-emoji', (event, emoji) => {
+      const emojiDiv = document.createElement('div');
+      emojiDiv.textContent = emoji;
+      emojiDiv.className = 'emoji';
+
+      document.body.appendChild(emojiDiv);
+
+      setTimeout(() => emojiDiv.style.opacity = '0', 500);
+      setTimeout(() => emojiDiv.remove(), 2000);
+    });
+  </script>
+</body>
+</html>
