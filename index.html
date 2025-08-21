@@ -54,6 +54,7 @@
       cursor: pointer;
       transition: background 0.2s, transform 0.2s;
       line-height: 1.4;
+      justify-content: space-between; /* text on left, button on far right */
     }
 
     .annotation:hover {
@@ -76,6 +77,26 @@
       color: #ddd;
     }
 
+    .annotation-content {
+      flex: 1; /* takes all available space */
+    }
+
+    .annotation button {
+      display: none;              /* hidden by default */
+      margin-left: 12px;
+      background: transparent;
+      border: none;
+      color: #ff5555;
+      font-size: 1.1em;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.2s, color 0.2s;
+      opacity: 0;
+    }
+
+    .annotation:hover button {
+      display: inline;
+      opacity: 1;                 /* smooth fade in */
+    }
     /* Neon Heading (same as before) */
     .neon-heading {
       font-family: 'Orbitron', sans-serif;
@@ -83,16 +104,17 @@
       font-weight: bold;
       text-transform: uppercase;
       text-align: center;
-      color: #ff00ff;
+
       background: linear-gradient(90deg, #ff00ff, #00ffff);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
-      text-shadow:
-        0 0 5px #ff00ff,
-        0 0 10px #ff00ff,
-        0 0 20px #00ffff,
-        0 0 30px #00ffff,
-        0 0 40px #ff00ff;
+
+      /* controlled glow */
+      text-shadow: 
+        0 0 5px rgba(255,0,255,0.7),
+        0 0 12px rgba(0,255,255,0.5);
+
+      -webkit-text-stroke: 1px rgba(0,0,0,0.6); /* crisp outline */
       animation: neonPulse 1.8s ease-in-out infinite alternate;
     }
 
@@ -131,6 +153,8 @@
   const videosDir = path.join(__dirname, 'videos');
   const metadataDir = path.join(__dirname, 'metadata');
   const sessionContainer = document.getElementById('sessions');
+  // this is a little ugly
+  const client = new AWSManager();
 
   function getFilesByExt(dir, ext) {
     return fs.readdirSync(dir)
@@ -145,141 +169,110 @@
       }, {});
   }
 
-
-  function loadSessions() {
-    const videoFiles = getFilesByExt(videosDir, '.mkv');
-    const annotationFiles = getFilesByExt(annotationsDir, '.json');
-    const metadataFiles = getFilesByExt(metadataDir, '.json');
-
-    // Convert objects to arrays for sorting
-    const videos = Object.values(videoFiles).sort((a, b) => a.ctimeMs - b.ctimeMs);
-    const annotations = Object.values(annotationFiles).sort((a, b) => a.ctimeMs - b.ctimeMs);
-    const metadataList = Object.values(metadataFiles).sort((a, b) => a.ctimeMs - b.ctimeMs);
-
-    const sessions = [];
-
-    const numSessions = Math.min(videos.length, annotations.length, metadataList.length);
-
-    for (let i = 0; i < numSessions; i++) {
-      let metadataRaw;
-      try {
-        metadataRaw = fs.readFileSync(metadataList[i].fullPath, 'utf8');
-      } catch {
-        continue;
-      }
-
-      let metadata;
-      try {
-        metadata = JSON.parse(metadataRaw);
-      } catch {
-        continue;
-      }
-
-      sessions.push({
-        video: videos[i],
-        annotation: annotations[i],
-        videoStartTimestamp: metadata.videoStartTimestamp || 0,
-        title: metadata.title || `Session ${i + 1}`,
-      });
-    }
-
-    // Sort by actual videoStartTimestamp inside metadata
-    sessions.sort((a, b) => a.videoStartTimestamp - b.videoStartTimestamp);
-
-    return sessions.reverse();
-  }
-
-
   function createSession(session) {
-  const sessionDiv = document.createElement('div');
-  sessionDiv.className = 'session';
+    const sessionDiv = document.createElement('div');
+    sessionDiv.className = 'session';
 
-  // --- Heading ---
-  const heading = document.createElement('h2');
-  const date = new Date(session.videoStartTimestamp);
-  const options = {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: true,
-    month: 'numeric',
-    day: 'numeric',
-    year: '2-digit'
-  };
-  const formattedTime = date.toLocaleTimeString(undefined, options);
-  heading.textContent = `${session.title} – ${formattedTime}`;
+    // --- Heading ---
+    const heading = document.createElement('h2');
+    const date = new Date(session.videoStartTimestamp);
+    const options = {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+      month: 'numeric',
+      day: 'numeric',
+      year: '2-digit'
+    };
+    const formattedTime = date.toLocaleTimeString(undefined, options);
+    heading.textContent = `${session.title} – ${formattedTime}`;
 
-  // --- Video ---
-  const video = document.createElement('video');
-  video.controls = true;
-  video.src = session.videoUrl; // ✅ S3 signed URL
+    // --- Video ---
+    const video = document.createElement('video');
+    video.controls = true;
+    video.src = session.videoUrl; // ✅ S3 signed URL
 
-  // --- Annotations ---
-  const annotationDiv = document.createElement('div');
-  annotationDiv.innerHTML = `<em>Loading annotations...</em>`;
+    // --- Annotations ---
+    const annotationDiv = document.createElement('div');
+    annotationDiv.innerHTML = `<em>Loading annotations...</em>`;
 
-  fetch(session.annotationUrl)
-    .then(res => res.json())
-    .then(annotations => {
-      annotationDiv.innerHTML = '';
-      const videoStart = session.videoStartTimestamp;
+    fetch(session.annotationUrl)
+      .then(res => res.json())
+      .then(annotations => {
+        annotationDiv.innerHTML = '';
+        const videoStart = session.videoStartTimestamp;
 
-      annotations.forEach(a => {
-        const offset = (a.timestamp - videoStart) / 1000;
-        const minutes = Math.floor(offset / 60);
-        const seconds = Math.floor(offset % 60);
-        const timeStr = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        annotations.forEach(a => {
+          const offset = (a.timestamp - videoStart) / 1000;
+          const minutes = Math.floor(offset / 60);
+          const seconds = Math.floor(offset % 60);
+          const timeStr = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 
-        const note = document.createElement('div');
-        note.className = 'annotation';
-        note.innerHTML = `<strong>${timeStr}</strong>: ${a.note}`;
-        note.onclick = () => {
-          video.currentTime = offset;
-          video.play();
-        };
+          const note = document.createElement('div');
+          note.className = 'annotation';
+          note.innerHTML = `<strong>${timeStr}</strong>: ${a.note}`;
+          note.onclick = () => {
+            video.currentTime = offset;
+            video.play();
+          };
 
-        annotationDiv.appendChild(note);
+          // --- Delete ---
+          const deleteBtn = document.createElement('button');
+          deleteBtn.innerHTML = '✕';
+          deleteBtn.onclick = async (e) => {
+            e.stopPropagation();
+
+            try {
+              await client.deleteAnnotation(session.username, session.annotationUrl, a.timestamp);
+
+              note.remove(); // ✅ remove from UI
+            } catch (err) {
+              console.error("Failed to delete annotation:", err);
+              alert("Error deleting annotation.");
+            }
+          };
+          note.appendChild(deleteBtn)
+          annotationDiv.appendChild(note);
+        });
+      })
+      .catch(err => {
+        annotationDiv.innerHTML = `<strong>Error loading annotations</strong>`;
+        console.error('Error fetching annotations:', err);
       });
-    })
-    .catch(err => {
-      annotationDiv.innerHTML = `<strong>Error loading annotations</strong>`;
-      console.error('Error fetching annotations:', err);
-    });
 
-  // --- Append to DOM ---
-  sessionDiv.appendChild(heading);
-  sessionDiv.appendChild(video);
-  sessionDiv.appendChild(annotationDiv);
-  sessionContainer.appendChild(sessionDiv);
-}
-
-  ipcRenderer.on('session-data', async (event, username) => {
-  console.log('Received session metadata:', username);
-
-  if (!username) {
-    sessionContainer.innerHTML = '<p>No username found in session data.</p>';
-    return;
+    // --- Append to DOM ---
+    sessionDiv.appendChild(heading);
+    sessionDiv.appendChild(video);
+    sessionDiv.appendChild(annotationDiv);
+    sessionContainer.appendChild(sessionDiv);
   }
 
-  // this is a little ugly
-  const client = new AWSManager();
-  try {
-    const sessions = await client.loadSessionsFromS3(username);
-    console.log("Loaded sessions from s3 ", sessions)
+    ipcRenderer.on('session-data', async (event, username) => {
+    console.log('Received session metadata:', username);
 
-    if (sessions.length === 0) {
-      sessionContainer.innerHTML = '<p>No sessions found in S3.</p>';
+    if (!username) {
+      sessionContainer.innerHTML = '<p>No username found in session data.</p>';
+      return;
     }
 
-    // Clear container before adding
-    sessionContainer.innerHTML = '';
+    try {
+      const sessions = await client.loadSessionsFromS3(username);
+      console.log("Loaded sessions from s3 ", sessions)
 
-    sessions.forEach(createSession);
+      if (sessions.length === 0) {
+        sessionContainer.innerHTML = '<p>No sessions found in S3.</p>';
+      }
 
-  } catch (err) {
-    console.error('Error loading sessions from S3:', err);
-    sessionContainer.innerHTML = '<p>Error loading sessions.</p>';
-  }});
+      // Clear container before adding
+      sessionContainer.innerHTML = '';
+
+      sessions.forEach(createSession);
+
+    } catch (err) {
+      console.error('Error loading sessions from S3:', err);
+      sessionContainer.innerHTML = '<p>Error loading sessions.</p>';
+    }});
   
 </script>
 
