@@ -7,6 +7,19 @@
     body {
       font-family: Arial, sans-serif;
       padding: 20px;
+      margin: 0;
+      background: linear-gradient(180deg, #0d0221, #1a1a40, #2e0249);
+      color: #eee;
+    }
+
+    /* Section headers under the main neon heading */
+    h2, h3 {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 1.4em;
+      font-weight: normal;
+      color: #00ffff;
+      text-shadow: 0 0 5px #00ffff, 0 0 10px #0088ff;
+      margin-bottom: 10px;
     }
 
     .session {
@@ -17,22 +30,96 @@
       width: 100%;
       max-width: 700px;
       margin-bottom: 1em;
+      border: 2px solid #00ffff;
+      border-radius: 6px;
+      box-shadow: 0 0 20px rgba(0,255,255,0.3);
+    }
+
+    .annotations {
+      margin-top: 10px;
+      max-width: 700px;
+      background: rgba(20, 20, 40, 0.8);
+      border: 1px solid rgba(255, 0, 255, 0.3);
+      border-radius: 8px;
+      padding: 10px;
+      box-shadow: 0 0 15px rgba(255,0,255,0.2);
     }
 
     .annotation {
-      margin: 5px 0;
-      padding: 4px 8px;
-      border-left: 4px solid #ccc;
+      padding: 6px 12px;
+      margin-bottom: 6px;
+      border-left: 4px solid #ff00ff;
+      background: linear-gradient(90deg, rgba(255,0,255,0.08), rgba(0,255,255,0.08));
+      border-radius: 4px;
       cursor: pointer;
+      transition: background 0.2s, transform 0.2s;
+      line-height: 1.4;
     }
 
     .annotation:hover {
-      background-color: #f0f0f0;
+      background: linear-gradient(90deg, rgba(255,0,255,0.15), rgba(0,255,255,0.15));
+      transform: scale(1.02);
     }
+
+    .annotation .emoji {
+      margin-right: 8px;
+      font-size: 1.2em;
+    }
+
+    .annotation .time {
+      font-weight: bold;
+      margin-right: 6px;
+      color: #00ffff;
+    }
+
+    .annotation .text {
+      color: #ddd;
+    }
+
+    /* Neon Heading (same as before) */
+    .neon-heading {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 2.5em;
+      font-weight: bold;
+      text-transform: uppercase;
+      text-align: center;
+      color: #ff00ff;
+      background: linear-gradient(90deg, #ff00ff, #00ffff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      text-shadow:
+        0 0 5px #ff00ff,
+        0 0 10px #ff00ff,
+        0 0 20px #00ffff,
+        0 0 30px #00ffff,
+        0 0 40px #ff00ff;
+      animation: neonPulse 1.8s ease-in-out infinite alternate;
+    }
+
+    @keyframes neonPulse {
+      from {
+        text-shadow:
+          0 0 5px #ff00ff,
+          0 0 10px #ff00ff,
+          0 0 20px #00ffff,
+          0 0 30px #00ffff,
+          0 0 40px #ff00ff;
+      }
+      to {
+        text-shadow:
+          0 0 10px #ff00ff,
+          0 0 20px #ff00ff,
+          0 0 30px #00ffff,
+          0 0 40px #00ffff,
+          0 0 50px #ff00ff;
+      }
+    }
+
+
   </style>
 </head>
 <body>
-  <h1>Video Sessions with Annotations</h1>
+  <h1 class="neon-heading">Annotated Sessions</h1>
   <div id="sessions">All Sessions</div>
   <script>
   const fs = require('fs');

@@ -11,6 +11,7 @@ const sessionMetadata = new SessionMetadata();
 
 // Instead of this, write it as an env variable and not a weird one off file
 const configPath = `backend/config.json`;
+var writeToAWS = true;
 
 const emojiReactions = {
   'CommandOrControl+1': '👍',  // Like
@@ -77,7 +78,7 @@ function createMainWindow() {
   });
 
   mainWindow.loadFile('index.html');
-  mainWindow.webContents.openDevTools();
+  // mainWindow.webContents.openDevTools();
   mainWindow.webContents.on('did-finish-load', () => {
     // Send sessionMetadata object or whatever data you want
     console.log("Sending username to index.html ", sessionMetadata.getUsername());
@@ -100,6 +101,7 @@ function createNoteWindow() {
     frame: false,
     resizable: false,
     skipTaskbar: true,
+    focusable: false,
     show: false,
     webPreferences: {
       nodeIntegration: true,
@@ -113,7 +115,10 @@ function createNoteWindow() {
     console.log('Overlay window ready');
   });
 
-  noteWindow.on('blur', () => noteWindow.hide());
+  noteWindow.on('blur', () => {
+    noteWindow.hide()
+    noteWindow.setFocusable(false);
+  });
 
   noteWindow.on('closed', async () => {
     noteWindow = null;
@@ -162,6 +167,7 @@ function attachOBSRecordingListener() {
         console.log('✅ Video uploaded to S3.');
       } catch (err) {
         console.error('❌ Failed to upload video:', err);
+        writeToAWS = false;
       }
     }
   });
@@ -270,6 +276,7 @@ app.whenReady().then(async () => {
 
   globalShortcut.register('CommandOrControl+Shift+N', () => {
     if (noteWindow && !noteWindow.isVisible()) {
+      noteWindow.setFocusable(true)
       noteWindow.show();
       noteWindow.focus();
     }
@@ -295,7 +302,9 @@ app.whenReady().then(async () => {
 
   ipcMain.on('save-annotation', (event, annotation) => {
     try {
-      awsManager.saveAnnotationToS3(sessionMetadata.getUsername(), annotation, sessionMetadata.getFileTimestamp())
+      if (writeToAWS) {
+        awsManager.saveAnnotationToS3(sessionMetadata.getUsername(), annotation, sessionMetadata.getFileTimestamp());
+      }
     } catch (err) {
       console.error('Error saving annotation:', err);
     }
