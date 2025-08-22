@@ -6,8 +6,8 @@ const isDebug = process.argv.includes('--debug');
 const path = require('path');
 const AWSManager = require('./backend/aws.js');
 const SessionMetadata = require('./backend/metadata.js')
-const awsManager = new AWSManager();
 const sessionMetadata = new SessionMetadata();
+let awsManager = null;
 
 // Instead of this, write it as an env variable and not a weird one off file
 const configPath = `backend/config.json`;
@@ -58,7 +58,8 @@ function createUsernamePrompt() {
       const configToWrite = { username };
       fs.writeFileSync(configPath, JSON.stringify(configToWrite, null, 2));
       console.log('Saved username:', username);
-
+      awsManager = new AWSManager(username);
+      await awsManager.init();
       awsManager.createFileStructure(username)
 
       promptWindow.close();
@@ -294,7 +295,9 @@ app.whenReady().then(async () => {
     console.log("Username required to proceed");
    await createUsernamePrompt();
   } 
-  console.log("Username is ", sessionMetadata.getUsername())
+  console.log("Username is ", sessionMetadata.getUsername());
+  awsManager = new AWSManager(sessionMetadata.getUsername());
+  await awsManager.init();
   if (isDebug) {
     console.log('DEBUG MODE: launching main window only');
     createMainWindow();

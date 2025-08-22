@@ -144,137 +144,141 @@
   <h1 class="neon-heading">Annotated Sessions</h1>
   <div id="sessions">All Sessions</div>
   <script>
-  const fs = require('fs');
-  const path = require('path');
-  const { ipcRenderer } = require('electron');
-  const AWSManager = require('./backend/aws.js');
+    const fs = require('fs');
+    const path = require('path');
+    const { ipcRenderer } = require('electron');
+    const AWSManager = require('./backend/aws.js');
 
-  const annotationsDir = path.join(__dirname, 'annotations');
-  const videosDir = path.join(__dirname, 'videos');
-  const metadataDir = path.join(__dirname, 'metadata');
-  const sessionContainer = document.getElementById('sessions');
-  // this is a little ugly
-  const client = new AWSManager();
+    const annotationsDir = path.join(__dirname, 'annotations');
+    const videosDir = path.join(__dirname, 'videos');
+    const metadataDir = path.join(__dirname, 'metadata');
+    const sessionContainer = document.getElementById('sessions');
 
-  function getFilesByExt(dir, ext) {
-    return fs.readdirSync(dir)
-      .filter(file => file.endsWith(ext))
-      .reduce((acc, file) => {
-        const base = path.basename(file, ext);
-        acc[base] = {
-          name: file,
-          fullPath: path.join(dir, file)
-        };
-        return acc;
-      }, {});
-  }
-
-  function createSession(session) {
-    const sessionDiv = document.createElement('div');
-    sessionDiv.className = 'session';
-
-    // --- Heading ---
-    const heading = document.createElement('h2');
-    const date = new Date(session.videoStartTimestamp);
-    const options = {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: true,
-      month: 'numeric',
-      day: 'numeric',
-      year: '2-digit'
-    };
-    const formattedTime = date.toLocaleTimeString(undefined, options);
-    heading.textContent = `${session.title} – ${formattedTime}`;
-
-    // --- Video ---
-    const video = document.createElement('video');
-    video.controls = true;
-    video.src = session.videoUrl; // ✅ S3 signed URL
-
-    // --- Annotations ---
-    const annotationDiv = document.createElement('div');
-    annotationDiv.innerHTML = `<em>Loading annotations...</em>`;
-
-    fetch(session.annotationUrl)
-      .then(res => res.json())
-      .then(annotations => {
-        annotationDiv.innerHTML = '';
-        const videoStart = session.videoStartTimestamp;
-
-        annotations.forEach(a => {
-          const offset = (a.timestamp - videoStart) / 1000;
-          const minutes = Math.floor(offset / 60);
-          const seconds = Math.floor(offset % 60);
-          const timeStr = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-
-          const note = document.createElement('div');
-          note.className = 'annotation';
-          note.innerHTML = `<strong>${timeStr}</strong>: ${a.note}`;
-          note.onclick = () => {
-            video.currentTime = offset;
-            video.play();
-          };
-
-          // --- Delete ---
-          const deleteBtn = document.createElement('button');
-          deleteBtn.innerHTML = '✕';
-          deleteBtn.onclick = async (e) => {
-            e.stopPropagation();
-
-            try {
-              await client.deleteAnnotation(session.username, session.annotationUrl, a.timestamp);
-
-              note.remove(); // ✅ remove from UI
-            } catch (err) {
-              console.error("Failed to delete annotation:", err);
-              alert("Error deleting annotation.");
-            }
-          };
-          note.appendChild(deleteBtn)
-          annotationDiv.appendChild(note);
-        });
-      })
-      .catch(err => {
-        annotationDiv.innerHTML = `<strong>Error loading annotations</strong>`;
-        console.error('Error fetching annotations:', err);
-      });
-
-    // --- Append to DOM ---
-    sessionDiv.appendChild(heading);
-    sessionDiv.appendChild(video);
-    sessionDiv.appendChild(annotationDiv);
-    sessionContainer.appendChild(sessionDiv);
-  }
+    let client; // top-level variable
 
     ipcRenderer.on('session-data', async (event, username) => {
-    console.log('Received session metadata:', username);
+      console.log('Received session metadata:', username);
 
-    if (!username) {
-      sessionContainer.innerHTML = '<p>No username found in session data.</p>';
-      return;
-    }
-
-    try {
-      const sessions = await client.loadSessionsFromS3(username);
-      console.log("Loaded sessions from s3 ", sessions)
-
-      if (sessions.length === 0) {
-        sessionContainer.innerHTML = '<p>No sessions found in S3.</p>';
+      if (!username) {
+          sessionContainer.innerHTML = '<p>No username found in session data.</p>';
+          return;
       }
 
-      // Clear container before adding
-      sessionContainer.innerHTML = '';
+      // Instantiate once per username
+      client = new AWSManager(username);
+      await client.init();
 
-      sessions.forEach(createSession);
+      try {
+          const sessions = await client.loadSessionsFromS3(username);
+          console.log("Loaded sessions from s3 ", sessions);
 
-    } catch (err) {
-      console.error('Error loading sessions from S3:', err);
-      sessionContainer.innerHTML = '<p>Error loading sessions.</p>';
-    }});
-  
-</script>
+          if (sessions.length === 0) {
+              sessionContainer.innerHTML = '<p>No sessions found in S3.</p>';
+              return;
+          }
+
+          // Clear container before adding
+          sessionContainer.innerHTML = '';
+          sessions.forEach(createSession);
+
+      } catch (err) {
+          console.error('Error loading sessions from S3:', err);
+          sessionContainer.innerHTML = '<p>Error loading sessions.</p>';
+      }
+    });
+
+    function getFilesByExt(dir, ext) {
+      return fs.readdirSync(dir)
+        .filter(file => file.endsWith(ext))
+        .reduce((acc, file) => {
+          const base = path.basename(file, ext);
+          acc[base] = {
+            name: file,
+            fullPath: path.join(dir, file)
+          };
+          return acc;
+        }, {});
+    }
+
+    function createSession(session) {
+      const sessionDiv = document.createElement('div');
+      sessionDiv.className = 'session';
+
+      // --- Heading ---
+      const heading = document.createElement('h2');
+      const date = new Date(session.videoStartTimestamp);
+      const options = {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true,
+        month: 'numeric',
+        day: 'numeric',
+        year: '2-digit'
+      };
+      const formattedTime = date.toLocaleTimeString(undefined, options);
+      heading.textContent = `${session.title} – ${formattedTime}`;
+
+      // --- Video ---
+      const video = document.createElement('video');
+      video.controls = true;
+      video.src = session.videoUrl; // ✅ S3 signed URL
+
+      // --- Annotations ---
+      const annotationDiv = document.createElement('div');
+      annotationDiv.innerHTML = `<em>Loading annotations...</em>`;
+
+      fetch(session.annotationUrl)
+        .then(res => res.json())
+        .then(annotations => {
+          annotationDiv.innerHTML = '';
+          const videoStart = session.videoStartTimestamp;
+
+          annotations.forEach(a => {
+            const offset = (a.timestamp - videoStart) / 1000;
+            const minutes = Math.floor(offset / 60);
+            const seconds = Math.floor(offset % 60);
+            const timeStr = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+
+            const note = document.createElement('div');
+            note.className = 'annotation';
+            note.innerHTML = `<strong>${timeStr}</strong>: ${a.note}`;
+            note.onclick = () => {
+              video.currentTime = offset;
+              video.play();
+            };
+
+            // --- Delete ---
+            const deleteBtn = document.createElement('button');
+            deleteBtn.innerHTML = '✕';
+            deleteBtn.onclick = async (e) => {
+              e.stopPropagation();
+
+              try {
+                await client.deleteAnnotation(session.username, session.annotationUrl, a.timestamp);
+
+                note.remove(); // ✅ remove from UI
+              } catch (err) {
+                console.error("Failed to delete annotation:", err);
+                alert("Error deleting annotation.");
+              }
+            };
+            note.appendChild(deleteBtn)
+            annotationDiv.appendChild(note);
+          });
+        })
+        .catch(err => {
+          annotationDiv.innerHTML = `<strong>Error loading annotations</strong>`;
+          console.error('Error fetching annotations:', err);
+        });
+
+      // --- Append to DOM ---
+      sessionDiv.appendChild(heading);
+      sessionDiv.appendChild(video);
+      sessionDiv.appendChild(annotationDiv);
+      sessionContainer.appendChild(sessionDiv);
+    }
+  </script>
 
 </body>
 </html>

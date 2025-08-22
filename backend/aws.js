@@ -3,21 +3,30 @@ require('dotenv').config({ path: __dirname + '/.env' }); // __dirname resolves t
 const SessionMetadata = require('./metadata.js')
 
 class AWSManager {
-  constructor() {
-    const bucket = process.env.AWS_BUCKET_NAME
-    const region = process.env.AWS_REGION
-    const accessKeyId = process.env.AWS_ACCESS_KEY_ID
-    const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY
-    this.bucket = bucket;
-    this.s3 = new AWS.S3({
-      region: region,
-      accessKeyId: accessKeyId,
-      secretAccessKey: secretAccessKey
-    });
+  constructor(username) {
+    this.username = username;
+    this.bucket = process.env.AWS_BUCKET_NAME;
+    this.region = process.env.AWS_REGION;
+    this.arn = process.env.AWS_ROLE_ARN;
+    this.s3 = null; // will be initialized asynchronously
   }
 
-  async getClient() {
-    return this.s3;
+  async init() {
+    const sts = new AWS.STS({ region: this.region, accessKeyId: process.env.AWS_ACCESS_KEY_ID, secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY });
+    const data = await sts.assumeRole({
+      RoleArn: this.arn,
+      RoleSessionName: `session-${this.username}-${Date.now()}`,
+      DurationSeconds: 3600,
+    }).promise();
+
+    this.s3 = new AWS.S3({
+      region: this.region,
+      accessKeyId: data.Credentials.AccessKeyId,
+      secretAccessKey: data.Credentials.SecretAccessKey,
+      sessionToken: data.Credentials.SessionToken,
+    });
+    console.log("Instantiated S3 client successfully");
+    return this; // optional, for chaining
   }
 
   async createFileStructure(username) {
@@ -75,21 +84,6 @@ class AWSManager {
       throw err;
     }
   }
-
-  async getSignedUrl(key, expiresInSeconds = 3600) {
-    try {
-      const url = await this.s3.getSignedUrlPromise('getObject', {
-        Bucket: this.bucket,
-        Key: key,
-        Expires: expiresInSeconds,
-      });
-      return url;
-    } catch (err) {
-      console.error(`❌ Failed to generate signed URL for ${key}`, err);
-      throw err;
-    }
-  }
-
 
     async loadJSON(username, fileTimestamp, folderName) {
         const key = `${username}/${folderName}/${fileTimestamp}.json`;
