@@ -16,7 +16,7 @@ class AWSManager {
     const data = await sts.assumeRole({
       RoleArn: this.arn,
       RoleSessionName: `session-${this.username}-${Date.now()}`,
-      DurationSeconds: 3600,
+      DurationSeconds: 43200,
     }).promise();
 
     this.s3 = new AWS.S3({
@@ -26,7 +26,7 @@ class AWSManager {
       sessionToken: data.Credentials.SessionToken,
     });
     console.log("Instantiated S3 client successfully");
-    return this; // optional, for chaining
+    return this; 
   }
 
   async createFileStructure(username) {

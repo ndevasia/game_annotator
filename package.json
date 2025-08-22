@@ -18,7 +18,7 @@
     "obs-websocket-js": "^5.0.6"
   },
   "build": {
-  "appId": "com.example.yourapp",
+  "appId": "com.example.gameannotator",
   "productName": "GameAnnotator",
   "win": {
     "target": "nsis",
