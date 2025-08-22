@@ -34,23 +34,26 @@ class AWSManager {
     const baseKey = `${username}/`;
     const folders = ['metadata/', 'annotations/', 'videos/'];
 
-    try {
-      await Promise.all(
-        folders.map((folder) =>
-          this.s3
+    await Promise.all(
+      folders.map(async (folder) => {
+        try {
+          await this.s3
             .putObject({
               Bucket: this.bucket,
               Key: baseKey + folder,
               Body: '',
             })
-            .promise()
-        )
-      );
-      console.log(`✅ Created S3 folders for ${username}`);
-    } catch (err) {
-      console.error(`❌ Error creating S3 folders for ${username}:`, err);
-    }
+            .promise();
+        } catch (err) {
+          // Log and continue if it's an "already exists" type error
+          console.warn(`⚠️ Could not create ${baseKey + folder}:`, err.code || err.message);
+        }
+      })
+    );
+
+    console.log(`✅ Ensured S3 folders exist for ${username}`);
   }
+
 
     async listFilesFromS3(prefix, extensionFilter = '') {
   try {

@@ -10,7 +10,7 @@ const sessionMetadata = new SessionMetadata();
 let awsManager = null;
 
 // Instead of this, write it as an env variable and not a weird one off file
-const configPath = `backend/config.json`;
+const configPath = path.join(app.getPath('userData'), 'config.json');
 var writeToAWS = true;
 
 const emojiReactions = {
@@ -24,6 +24,10 @@ const emojiReactions = {
 
 if (fs.existsSync(configPath)) {
   userConfig = JSON.parse(fs.readFileSync(configPath));
+}
+
+if (app.isPackaged) {
+  console.log("Running packaged version of the app");
 }
 
 let noteWindow = null;
@@ -336,7 +340,27 @@ app.whenReady().then(async () => {
 
   globalShortcut.register('CommandOrControl+Shift+Q', async () => {
     console.log('Quit hotkey pressed: stopping recording');
-    app.quit();
+    if (isQuitting) return; // already handled
+
+    // Only run shutdown logic in packaged OR dev (not both)
+    if ((app.isPackaged && !isDebug) || (!app.isPackaged && !isDebug)) {
+      console.log('Gracefully stopping OBS before quitting...');
+      
+      isQuitting = true;
+
+      try {
+        await stopOBSRecording();
+        await obs.disconnect();
+      } catch (err) {
+        console.error('Error during OBS shutdown:', err);
+      }
+
+      if (noteWindow) {
+        noteWindow.close();
+      }
+
+      createMainWindow(); // launch playback
+    }
   });
 
   ipcMain.on('save-annotation', (event, annotation) => {
@@ -379,36 +403,17 @@ app.whenReady().then(async () => {
     }
   }
 
-app.on('before-quit', async (event) => {
-  if (!isQuitting  && !isDebug) {
-    event.preventDefault(); // prevent immediate quit
-    console.log('Gracefully stopping OBS before quitting...');
-    
-    isQuitting = true;
+  app.on('will-quit', () => {
+    globalShortcut.unregisterAll();
+  });
 
-    try {
-      await stopOBSRecording();
-      await obs.disconnect(); // separate OBS disconnect if needed
-    } catch (err) {
-      console.error('Error during OBS shutdown:', err);
+  app.on('window-all-closed', () => {
+    if (!isQuitting) {
+      // Don't quit automatically — only quit when hotkey/explicit quit sets isQuitting
+      return;
     }
 
-    // Close overlay window
-    if (noteWindow) {
-      noteWindow.close();
+    if (process.platform !== 'darwin') {
+      app.quit();
     }
-
-    // Now launch main window (for playback)
-     createMainWindow();
-  }
-});
-
-app.on('will-quit', () => {
-  globalShortcut.unregisterAll();
-});
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
+  });
