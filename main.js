@@ -6,11 +6,12 @@ const isDebug = process.argv.includes('--debug');
 const path = require('path');
 const AWSManager = require('./backend/aws.js');
 const SessionMetadata = require('./backend/metadata.js')
-const awsManager = new AWSManager();
 const sessionMetadata = new SessionMetadata();
+let awsManager = null;
 
 // Instead of this, write it as an env variable and not a weird one off file
-const configPath = `backend/config.json`;
+const configPath = path.join(app.getPath('userData'), 'config.json');
+var writeToAWS = true;
 
 const emojiReactions = {
   'CommandOrControl+1': '👍',  // Like
@@ -25,10 +26,15 @@ if (fs.existsSync(configPath)) {
   userConfig = JSON.parse(fs.readFileSync(configPath));
 }
 
+if (app.isPackaged) {
+  console.log("Running packaged version of the app");
+}
+
 let noteWindow = null;
 let mainWindow = null;
 let startWindow = null;
 let usernamePromptWindow = null;
+let emojiWindow = null;
 
 function createUsernamePrompt() {
   return new Promise((resolve) => {
@@ -56,7 +62,8 @@ function createUsernamePrompt() {
       const configToWrite = { username };
       fs.writeFileSync(configPath, JSON.stringify(configToWrite, null, 2));
       console.log('Saved username:', username);
-
+      awsManager = new AWSManager(username);
+      await awsManager.init();
       awsManager.createFileStructure(username)
 
       promptWindow.close();
@@ -77,7 +84,7 @@ function createMainWindow() {
   });
 
   mainWindow.loadFile('index.html');
-  mainWindow.webContents.openDevTools();
+  // mainWindow.webContents.openDevTools();
   mainWindow.webContents.on('did-finish-load', () => {
     // Send sessionMetadata object or whatever data you want
     console.log("Sending username to index.html ", sessionMetadata.getUsername());
@@ -86,6 +93,36 @@ function createMainWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
     app.quit();
+  });
+}
+
+function createEmojiWindow() {
+  if (emojiWindow) return;
+
+  emojiWindow = new BrowserWindow({
+    width: 400,
+    height: 200,
+    alwaysOnTop: true,
+    transparent: true,
+    frame: false,
+    resizable: false,
+    skipTaskbar: true,
+    focusable: false,          // click-through
+    show: true,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    }
+  });
+
+  emojiWindow.loadFile('emoji.html');
+
+  emojiWindow.once('ready-to-show', () => {
+    console.log('Emoji overlay ready');
+  });
+
+  emojiWindow.on('closed', () => {
+    emojiWindow = null;
   });
 }
 
@@ -100,6 +137,7 @@ function createNoteWindow() {
     frame: false,
     resizable: false,
     skipTaskbar: true,
+    focusable: false,
     show: false,
     webPreferences: {
       nodeIntegration: true,
@@ -113,7 +151,10 @@ function createNoteWindow() {
     console.log('Overlay window ready');
   });
 
-  noteWindow.on('blur', () => noteWindow.hide());
+  noteWindow.on('blur', () => {
+    noteWindow.hide()
+    noteWindow.setFocusable(false);
+  });
 
   noteWindow.on('closed', async () => {
     noteWindow = null;
@@ -162,6 +203,7 @@ function attachOBSRecordingListener() {
         console.log('✅ Video uploaded to S3.');
       } catch (err) {
         console.error('❌ Failed to upload video:', err);
+        writeToAWS = false;
       }
     }
   });
@@ -257,7 +299,9 @@ app.whenReady().then(async () => {
     console.log("Username required to proceed");
    await createUsernamePrompt();
   } 
-  console.log("Username is ", sessionMetadata.getUsername())
+  console.log("Username is ", sessionMetadata.getUsername());
+  awsManager = new AWSManager(sessionMetadata.getUsername());
+  await awsManager.init();
   if (isDebug) {
     console.log('DEBUG MODE: launching main window only');
     createMainWindow();
@@ -267,9 +311,11 @@ app.whenReady().then(async () => {
   createStartWindow();
   await connectOBS();        // Wait for OBS to be ready and start recording
   createNoteWindow();        // Then open the overlay window
+  createEmojiWindow();
 
   globalShortcut.register('CommandOrControl+Shift+N', () => {
     if (noteWindow && !noteWindow.isVisible()) {
+      noteWindow.setFocusable(true)
       noteWindow.show();
       noteWindow.focus();
     }
@@ -280,22 +326,48 @@ app.whenReady().then(async () => {
 
   for (const [shortcut, emoji] of Object.entries(emojiReactions)) {
     globalShortcut.register(shortcut, () => {
-      if (noteWindow) {
-        if (!noteWindow.isVisible()) noteWindow.show();
-        noteWindow.webContents.send('emoji-reaction', emoji);
-        awsManager.saveAnnotationToS3(sessionMetadata.getUsername(), { note: emoji, timestamp: Date.now() }, sessionMetadata.getFileTimestamp())
+      if (emojiWindow) {
+        emojiWindow.webContents.send('show-emoji', emoji);
       }
+      awsManager.saveAnnotationToS3(
+        sessionMetadata.getUsername(),
+        { note: emoji, timestamp: Date.now() },
+        sessionMetadata.getFileTimestamp()
+      );
     });
   }
 
+
   globalShortcut.register('CommandOrControl+Shift+Q', async () => {
     console.log('Quit hotkey pressed: stopping recording');
-    app.quit();
+    if (isQuitting) return; // already handled
+
+    // Only run shutdown logic in packaged OR dev (not both)
+    if ((app.isPackaged && !isDebug) || (!app.isPackaged && !isDebug)) {
+      console.log('Gracefully stopping OBS before quitting...');
+      
+      isQuitting = true;
+
+      try {
+        await stopOBSRecording();
+        await obs.disconnect();
+      } catch (err) {
+        console.error('Error during OBS shutdown:', err);
+      }
+
+      if (noteWindow) {
+        noteWindow.close();
+      }
+
+      createMainWindow(); // launch playback
+    }
   });
 
   ipcMain.on('save-annotation', (event, annotation) => {
     try {
-      awsManager.saveAnnotationToS3(sessionMetadata.getUsername(), annotation, sessionMetadata.getFileTimestamp())
+      if (writeToAWS) {
+        awsManager.saveAnnotationToS3(sessionMetadata.getUsername(), annotation, sessionMetadata.getFileTimestamp());
+      }
     } catch (err) {
       console.error('Error saving annotation:', err);
     }
@@ -331,36 +403,17 @@ app.whenReady().then(async () => {
     }
   }
 
-app.on('before-quit', async (event) => {
-  if (!isQuitting  && !isDebug) {
-    event.preventDefault(); // prevent immediate quit
-    console.log('Gracefully stopping OBS before quitting...');
-    
-    isQuitting = true;
+  app.on('will-quit', () => {
+    globalShortcut.unregisterAll();
+  });
 
-    try {
-      await stopOBSRecording();
-      await obs.disconnect(); // separate OBS disconnect if needed
-    } catch (err) {
-      console.error('Error during OBS shutdown:', err);
+  app.on('window-all-closed', () => {
+    if (!isQuitting) {
+      // Don't quit automatically — only quit when hotkey/explicit quit sets isQuitting
+      return;
     }
 
-    // Close overlay window
-    if (noteWindow) {
-      noteWindow.close();
+    if (process.platform !== 'darwin') {
+      app.quit();
     }
-
-    // Now launch main window (for playback)
-     createMainWindow();
-  }
-});
-
-app.on('will-quit', () => {
-  globalShortcut.unregisterAll();
-});
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
+  });

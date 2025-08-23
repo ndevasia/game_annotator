@@ -1,0 +1,62 @@
+body {
+  margin: 0;
+  background: linear-gradient(180deg, #0f0c29, #302b63, #24243e);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #ff00ff;
+  font-family: "Orbitron", sans-serif;
+  text-shadow: 0 0 10px #ff00ff, 0 0 20px #00ffff;
+}
+
+textarea {
+  width: 90%;
+  height: 120px;
+  font-size: 16px; /* slightly bigger for clarity */
+  line-height: 1.5; /* improve spacing */
+  padding: 10px;
+  border: 2px solid #00ffff;
+  border-radius: 8px;
+  resize: none;
+
+  /* Background: darker and less transparent for contrast */
+  background-color: rgba(0, 0, 0, 0.9);
+
+  /* Text styling */
+  color: #00ffff;
+  font-family: "Orbitron", sans-serif;
+  text-shadow: none; /* remove glow for readability */
+  font-weight: 500;
+
+  /* Improve rendering */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button {
+  margin-top: 10px;
+  padding: 12px 24px;
+  font-size: 16px;
+  border: 2px solid #ff00ff;
+  border-radius: 8px;
+  cursor: pointer;
+  background: linear-gradient(90deg, #ff00ff, #00ffff);
+  color: black;
+  font-weight: bold;
+  text-transform: uppercase;
+  font-family: "Orbitron", sans-serif;
+}
+
+.button-small {
+    font-size: 14px;
+    border: 1px solid #ff00ff;;
+    border-radius: 5px;
+}
+
+#annotation-ui {
+  display: flex;
+  flex-direction: column; /* stack vertically */
+  align-items: center;    /* center horizontally */
+  width: 100%;
+}

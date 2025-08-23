@@ -3,50 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <title>Note Annotation</title>
-  <style>
-    body {
-      margin: 0;
-      background-color: rgba(0, 0, 0, 0); /* Semi-transparent dark overlay */
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      color: white;
-      font-family: sans-serif;
-    }
-    #annotation-ui {
-      width: 90%;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-    textarea {
-      width: 100%;
-      height: 100px;
-      font-size: 16px;
-      padding: 10px;
-      border: none;
-      border-radius: 5px;
-      resize: none;
-      background-color: rgba(255, 255, 255, 0.9);
-      color: #000;
-    }
-    button {
-      margin-top: 10px;
-      padding: 10px 20px;
-      font-size: 16px;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-      background-color: #4CAF50;
-      color: white;
-    }
-  </style>
+  <!-- Link to external stylesheet -->
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div id="annotation-ui">
     <textarea id="note" placeholder="Type your annotation..."></textarea>
-    <button onclick="saveNote()">Save</button>
+    <button class = "button-small" onclick="saveNote()">Save</button>
   </div>
 
   <script>
@@ -73,35 +36,10 @@
       if (annotationUI) annotationUI.style.display = 'flex';
     });
 
-
-    function showEmojiReaction(emoji) {
-      const emojiDiv = document.createElement('div');
-      emojiDiv.textContent = emoji;
-      emojiDiv.style.position = 'fixed';
-      emojiDiv.style.top = '20%';
-      emojiDiv.style.left = '50%';
-      emojiDiv.style.transform = 'translateX(-50%)';
-      emojiDiv.style.fontSize = '5rem';
-      emojiDiv.style.opacity = '1';
-      emojiDiv.style.transition = 'opacity 1.5s ease-out';
-      emojiDiv.style.pointerEvents = 'none';     // Prevent interaction
-      emojiDiv.style.background = 'none';        // No background color
-      emojiDiv.style.willChange = 'opacity';     // Optimize opacity transition
-      emojiDiv.style.userSelect = 'none';        // Prevent text selection
-
-      document.body.appendChild(emojiDiv);
-
-      setTimeout(() => {
-        emojiDiv.style.opacity = '0';
-      }, 500);
-
-      setTimeout(() => {
-        if (emojiDiv.parentNode) {
-          emojiDiv.parentNode.removeChild(emojiDiv);
-        }
-      }, 2000);
-    }
-
+    ipcRenderer.on('emoji-reaction', (event, emoji) => {
+      // Send emoji to separate emoji window
+      ipcRenderer.send('show-emoji', emoji);
+    });
   </script>
 </body>
 </html>

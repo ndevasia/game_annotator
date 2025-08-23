@@ -3,43 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <title>Note Annotation</title>
-  <style>
-    body {
-      margin: 0;
-      background-color: rgba(0, 0, 0, 0.5); /* Semi-transparent dark overlay */
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      color: white;
-      font-family: sans-serif;
-    }
-    textarea {
-      width: 90%;
-      height: 100px;
-      font-size: 16px;
-      padding: 10px;
-      border: none;
-      border-radius: 5px;
-      resize: none;
-      background-color: rgba(255, 255, 255, 0.9);
-      color: #000;
-    }
-    button {
-      margin-top: 10px;
-      padding: 10px 20px;
-      font-size: 16px;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-      background-color: #4CAF50;
-      color: white;
-    }
-  </style>
+  <!-- Link to external stylesheet -->
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <textarea id="start" placeholder="What game are you playing today?"></textarea>
-    <button onclick="saveStart()">Submit</button>
+    <button class="button-small" onclick="saveStart()">Submit</button>
 
   <script>
   const { ipcRenderer } = require('electron');
