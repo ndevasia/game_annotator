@@ -268,8 +268,8 @@
           });
         })
         .catch(err => {
-          annotationDiv.innerHTML = `<strong>Error loading annotations</strong>`;
-          console.error('Error fetching annotations:', err);
+          annotationDiv.innerHTML = `<strong>No annotations detected</strong>`;
+          console.error('Error fetching annotations, or none detected:', err);
         });
 
       // --- Append to DOM ---
