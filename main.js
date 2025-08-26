@@ -330,10 +330,8 @@ app.whenReady().then(async () => {
         emojiWindow.webContents.send('show-emoji', emoji);
       }
       awsManager.saveAnnotationToS3(
-        sessionMetadata.getUsername(),
-        { note: emoji, timestamp: Date.now() },
-        sessionMetadata.getFileTimestamp()
-      );
+        sessionMetadata,
+        { note: emoji, timestamp: Date.now() });
     });
   }
 
@@ -366,7 +364,7 @@ app.whenReady().then(async () => {
   ipcMain.on('save-annotation', (event, annotation) => {
     try {
       if (writeToAWS) {
-        awsManager.saveAnnotationToS3(sessionMetadata.getUsername(), annotation, sessionMetadata.getFileTimestamp());
+        awsManager.saveAnnotationToS3(sessionMetadata, annotation);
       }
     } catch (err) {
       console.error('Error saving annotation:', err);

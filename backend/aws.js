@@ -290,20 +290,22 @@ async _safeGetSignedUrl(key) {
     return true;
   }
 
-  async saveAnnotationToS3(username, annotation, fileTimestamp) {
+  async saveAnnotationToS3(sessionMetadata, annotation) {
     try {
         // Step 1: Try to fetch existing file from S3
         let annotations = [];
+        let username = sessionMetadata.getUsername();
+        let timestamp = sessionMetadata.getFileTimestamp();
         try {
         // maybe get all objects for debugging
         const s3Object = await this.s3.getObject({
             Bucket: this.bucket,
-            Key: `${username}/annotations/${fileTimestamp}.json`,
+            Key: `${username}/annotations/${timestamp}.json`,
         }).promise();
         console.log(`Trying to save annotation to s3://${s3Object.Bucket}/${s3Object.Key}`);
 
         const body = s3Object.Body.toString();
-        annotations = JSON.parse(body);
+        annotations =  JSON.parse(body);
         } catch (err) {
         if (err.code === 'NoSuchKey') {
             console.log('File not found on S3 — starting fresh.');
@@ -319,15 +321,12 @@ async _safeGetSignedUrl(key) {
         const buffer = Buffer.from(JSON.stringify(annotations, null, 2));
 
         // Step 4: Upload to S3
-        await this.uploadFile(buffer, username, fileTimestamp, 'annotations');
+        await this.uploadFile(buffer, username, timestamp, 'annotations');
         console.log('✅ Annotation saved to S3');
     } catch (err) {
         console.error('❌ Error saving annotation to S3:', err);
     }
     }
-
-    
-
 }
 
 module.exports = AWSManager;
