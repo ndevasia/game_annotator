@@ -19,6 +19,15 @@
     document.getElementById('start').value = '';
     ipcRenderer.send('hide-start');
   }
+
+  // Trigger saveStart() on Enter key
+  const noteInput = document.getElementById('start');
+  noteInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault(); // prevent adding a new line
+      saveStart();
+    }
+  });
 </script>
 </body>
 </html>

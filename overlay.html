@@ -17,27 +17,34 @@
 
     function saveNote() {
       const note = document.getElementById('note').value;
+      if (!note.trim()) return; // optional: ignore empty notes
       const timestamp = Date.now();
       ipcRenderer.send('save-annotation', { note, timestamp });
       document.getElementById('note').value = '';
       ipcRenderer.send('hide-overlay');
     }
 
+    // Trigger saveNote() on Enter key
+    const noteInput = document.getElementById('note');
+    noteInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault(); // prevent adding a new line
+        saveNote();
+      }
+    });
+
     ipcRenderer.on('emoji-reaction', (event, emoji) => {
-      // Hide annotation UI
       const annotationUI = document.getElementById('annotation-ui');
       if (annotationUI) annotationUI.style.display = 'none';
-
-      // Show emoji reaction on overlay
       showEmojiReaction(emoji);
     });
+
     ipcRenderer.on('show-annotation-ui', () => {
       const annotationUI = document.getElementById('annotation-ui');
       if (annotationUI) annotationUI.style.display = 'flex';
     });
 
     ipcRenderer.on('emoji-reaction', (event, emoji) => {
-      // Send emoji to separate emoji window
       ipcRenderer.send('show-emoji', emoji);
     });
   </script>

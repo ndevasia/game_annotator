@@ -9,7 +9,7 @@ class SessionMetadata {
     this.videoStartTimestamp = videoStartTimestamp;
 
     // Try to load username from config.json if not provided
-    if (!this.username) {
+    if (this.username=='') {
       const configPath = path.join(__dirname, 'config.json');
       if (fs.existsSync(configPath)) {
         try {
