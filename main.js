@@ -35,6 +35,43 @@ let mainWindow = null;
 let startWindow = null;
 let usernamePromptWindow = null;
 let emojiWindow = null;
+let loadingWindow = null;
+
+function createLoadingWindow() {
+  if (loadingWindow) return;
+
+  loadingWindow = new BrowserWindow({
+    width: 300,
+    height: 150,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    resizable: false,
+    movable: true,
+    show: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    }
+  });
+
+  loadingWindow.loadFile('loading.html');
+
+  loadingWindow.once('ready-to-show', () => {
+    loadingWindow.show();
+  });
+
+  loadingWindow.on('closed', () => {
+    loadingWindow = null;
+  });
+}
+
+function closeLoadingWindow() {
+  if (loadingWindow) {
+    loadingWindow.close();
+    loadingWindow = null;
+  }
+}
 
 function createUsernamePrompt() {
   return new Promise((resolve) => {
@@ -191,25 +228,10 @@ function createStartWindow() {
 function attachOBSRecordingListener() {
   obs.on('RecordStateChanged', async (data) => {
     console.log('🎥 OBS RecordStateChanged event:', data);
-
-    // Only trigger on fully stopped recordings with a valid file path
-    if (data.outputState === 'OBS_WEBSOCKET_OUTPUT_STOPPED' && data.outputPath) {
-      const filePath = data.outputPath;
-      console.log(`✅ Recording finalized at: ${filePath}`);
-
-      try {
-        const fileBuffer = fs.readFileSync(filePath);
-        await awsManager.uploadFile(fileBuffer, sessionMetadata.getUsername(), sessionMetadata.getFileTimestamp(), 'videos');
-        console.log('✅ Video uploaded to S3.');
-      } catch (err) {
-        console.error('❌ Failed to upload video:', err);
-        writeToAWS = false;
-      }
-    }
   });
-
   console.log('📡 OBS recording listener attached');
 }
+
 
 async function connectOBS() {
   try {
@@ -347,11 +369,15 @@ app.whenReady().then(async () => {
       isQuitting = true;
 
       try {
+        createLoadingWindow();   // show spinner while stopping + uploading
         await stopOBSRecording();
         await obs.disconnect();
       } catch (err) {
         console.error('Error during OBS shutdown:', err);
+      } finally {
+        closeLoadingWindow();    // ✅ always close spinner here
       }
+
 
       if (noteWindow) {
         noteWindow.close();
