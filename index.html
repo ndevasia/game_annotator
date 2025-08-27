@@ -140,91 +140,232 @@
 
   </style>
 </head>
-<body>
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Video + Annotations</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      margin: 0;
+      background: linear-gradient(180deg, #0d0221, #1a1a40, #2e0249);
+      color: #eee;
+    }
+
+    /* Section headers under the main neon heading */
+    h2, h3 {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 1.4em;
+      font-weight: normal;
+      color: #00ffff;
+      text-shadow: 0 0 5px #00ffff, 0 0 10px #0088ff;
+      margin-bottom: 10px;
+    }
+
+    .session {
+      margin-bottom: 40px;
+    }
+
+    video {
+      width: 100%;
+      max-width: 700px;
+      margin-bottom: 1em;
+      border: 2px solid #00ffff;
+      border-radius: 6px;
+      box-shadow: 0 0 20px rgba(0,255,255,0.3);
+    }
+
+    .annotations {
+      margin-top: 10px;
+      max-width: 700px;
+      background: rgba(20, 20, 40, 0.8);
+      border: 1px solid rgba(255, 0, 255, 0.3);
+      border-radius: 8px;
+      padding: 10px;
+      box-shadow: 0 0 15px rgba(255,0,255,0.2);
+    }
+
+    .annotation {
+      padding: 6px 12px;
+      margin-bottom: 6px;
+      border-left: 4px solid #ff00ff;
+      background: linear-gradient(90deg, rgba(255,0,255,0.08), rgba(0,255,255,0.08));
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.2s;
+      line-height: 1.4;
+      justify-content: space-between; /* text on left, button on far right */
+    }
+
+    .annotation:hover {
+      background: linear-gradient(90deg, rgba(255,0,255,0.15), rgba(0,255,255,0.15));
+      transform: scale(1.02);
+    }
+
+    .annotation .emoji {
+      margin-right: 8px;
+      font-size: 1.2em;
+    }
+
+    .annotation .time {
+      font-weight: bold;
+      margin-right: 6px;
+      color: #00ffff;
+    }
+
+    .annotation .text {
+      color: #ddd;
+    }
+
+    .annotation-content {
+      flex: 1; /* takes all available space */
+    }
+
+    .annotation button {
+      display: none;              /* hidden by default */
+      margin-left: 12px;
+      background: transparent;
+      border: none;
+      color: #ff5555;
+      font-size: 1.1em;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.2s, color 0.2s;
+      opacity: 0;
+    }
+
+    .annotation:hover button {
+      display: inline;
+      opacity: 1;                 /* smooth fade in */
+    }
+    /* Neon Heading (same as before) */
+    .neon-heading {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 2.5em;
+      font-weight: bold;
+      text-transform: uppercase;
+      text-align: center;
+
+      background: linear-gradient(90deg, #ff00ff, #00ffff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+
+      /* controlled glow */
+      text-shadow: 
+        0 0 5px rgba(255,0,255,0.7),
+        0 0 12px rgba(0,255,255,0.5);
+
+      -webkit-text-stroke: 1px rgba(0,0,0,0.6); /* crisp outline */
+      animation: neonPulse 1.8s ease-in-out infinite alternate;
+    }
+
+    @keyframes neonPulse {
+      from {
+        text-shadow:
+          0 0 5px #ff00ff,
+          0 0 10px #ff00ff,
+          0 0 20px #00ffff,
+          0 0 30px #00ffff,
+          0 0 40px #ff00ff;
+      }
+      to {
+        text-shadow:
+          0 0 10px #ff00ff,
+          0 0 20px #ff00ff,
+          0 0 30px #00ffff,
+          0 0 40px #00ffff,
+          0 0 50px #ff00ff;
+      }
+    }
+
+
+  </style>
+</head>
+  <body>
   <h1 class="neon-heading">Annotated Sessions</h1>
-  <div id="sessions">All Sessions</div>
+  <div id="sessions"></div>
+  <button id="load-more" style="display:none; margin: 20px auto; padding: 10px 20px;
+    background: #00ffff; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">
+    Load More Sessions
+  </button>
+
   <script>
     const fs = require('fs');
     const path = require('path');
     const { ipcRenderer } = require('electron');
     const AWSManager = require('./backend/aws.js');
 
-    const annotationsDir = path.join(__dirname, 'annotations');
-    const videosDir = path.join(__dirname, 'videos');
-    const metadataDir = path.join(__dirname, 'metadata');
     const sessionContainer = document.getElementById('sessions');
+    const loadMoreBtn = document.getElementById('load-more');
 
-    let client; // top-level variable
+    let client;
+    let allSessions = [];
+    let visibleCount = 0;
+    const PAGE_SIZE = 5;
 
     ipcRenderer.on('session-data', async (event, username) => {
       console.log('Received session metadata:', username);
 
       if (!username) {
-          sessionContainer.innerHTML = '<p>No username found in session data.</p>';
-          return;
+        sessionContainer.innerHTML = '<p>No username found in session data.</p>';
+        return;
       }
 
-      // Instantiate once per username
       client = new AWSManager(username);
       await client.init();
 
       try {
-          const sessions = await client.loadSessionsFromS3(username);
-          console.log("Loaded sessions from s3 ", sessions);
+        allSessions = await client.loadSessionsFromS3(username);
+        console.log("Loaded sessions from s3 ", allSessions);
 
-          if (sessions.length === 0) {
-              sessionContainer.innerHTML = '<p>No sessions found in S3.</p>';
-              return;
-          }
+        if (allSessions.length === 0) {
+          sessionContainer.innerHTML = '<p>No sessions found in S3.</p>';
+          return;
+        }
 
-          // Clear container before adding
-          sessionContainer.innerHTML = '';
-          sessions.forEach(createSession);
+        // clear and reset
+        sessionContainer.innerHTML = '';
+        visibleCount = 0;
+        renderNextPage();
 
       } catch (err) {
-          console.error('Error loading sessions from S3:', err);
-          sessionContainer.innerHTML = '<p>Error loading sessions.</p>';
+        console.error('Error loading sessions from S3:', err);
+        sessionContainer.innerHTML = '<p>Error loading sessions.</p>';
       }
     });
 
-    function getFilesByExt(dir, ext) {
-      return fs.readdirSync(dir)
-        .filter(file => file.endsWith(ext))
-        .reduce((acc, file) => {
-          const base = path.basename(file, ext);
-          acc[base] = {
-            name: file,
-            fullPath: path.join(dir, file)
-          };
-          return acc;
-        }, {});
+    function renderNextPage() {
+      const next = allSessions.slice(visibleCount, visibleCount + PAGE_SIZE);
+      next.forEach(createSession);
+      visibleCount += next.length;
+
+      // toggle button visibility
+      if (visibleCount < allSessions.length) {
+        loadMoreBtn.style.display = 'block';
+      } else {
+        loadMoreBtn.style.display = 'none';
+      }
     }
+
+    loadMoreBtn.addEventListener('click', renderNextPage);
 
     function createSession(session) {
       const sessionDiv = document.createElement('div');
       sessionDiv.className = 'session';
 
-      // --- Heading ---
       const heading = document.createElement('h2');
       const date = new Date(session.videoStartTimestamp);
       const options = {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: true,
-        month: 'numeric',
-        day: 'numeric',
-        year: '2-digit'
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: true, month: 'numeric', day: 'numeric', year: '2-digit'
       };
-      const formattedTime = date.toLocaleTimeString(undefined, options);
-      heading.textContent = `${session.title} – ${formattedTime}`;
+      heading.textContent = `${session.title} – ${date.toLocaleTimeString(undefined, options)}`;
 
-      // --- Video ---
       const video = document.createElement('video');
       video.controls = true;
-      video.src = session.videoUrl; // ✅ S3 signed URL
+      video.src = session.videoUrl;
 
-      // --- Annotations ---
       const annotationDiv = document.createElement('div');
       annotationDiv.innerHTML = `<em>Loading annotations...</em>`;
 
@@ -243,42 +384,36 @@
             const note = document.createElement('div');
             note.className = 'annotation';
             note.innerHTML = `<strong>${timeStr}</strong>: ${a.note}`;
-            note.onclick = () => {
-              video.currentTime = offset;
-              video.play();
-            };
+            note.onclick = () => { video.currentTime = offset; video.play(); };
 
-            // --- Delete ---
             const deleteBtn = document.createElement('button');
             deleteBtn.innerHTML = '✕';
             deleteBtn.onclick = async (e) => {
               e.stopPropagation();
-
               try {
                 await client.deleteAnnotation(session.username, session.annotationUrl, a.timestamp);
-
-                note.remove(); // ✅ remove from UI
+                note.remove();
               } catch (err) {
                 console.error("Failed to delete annotation:", err);
                 alert("Error deleting annotation.");
               }
             };
-            note.appendChild(deleteBtn)
+            note.appendChild(deleteBtn);
             annotationDiv.appendChild(note);
           });
         })
         .catch(err => {
           annotationDiv.innerHTML = `<strong>No annotations detected</strong>`;
-          console.error('Error fetching annotations, or none detected:', err);
+          console.error('Error fetching annotations:', err);
         });
 
-      // --- Append to DOM ---
       sessionDiv.appendChild(heading);
       sessionDiv.appendChild(video);
       sessionDiv.appendChild(annotationDiv);
       sessionContainer.appendChild(sessionDiv);
     }
   </script>
-
 </body>
+
+</html>
 </html>
