@@ -158,6 +158,8 @@ function createEmojiWindow() {
     console.log('Emoji overlay ready');
   });
 
+  emojiWindow.setIgnoreMouseEvents(true, { forward: true });
+
   emojiWindow.on('closed', () => {
     emojiWindow = null;
   });
@@ -174,7 +176,7 @@ function createNoteWindow() {
     frame: false,
     resizable: false,
     skipTaskbar: true,
-    focusable: false,
+    focusable: true,
     show: false,
     webPreferences: {
       nodeIntegration: true,
@@ -187,6 +189,8 @@ function createNoteWindow() {
   noteWindow.once('ready-to-show', () => {
     console.log('Overlay window ready');
   });
+
+  noteWindow.setIgnoreMouseEvents(true, { forward: true });
 
   noteWindow.on('blur', () => {
     noteWindow.hide()
@@ -209,6 +213,7 @@ function createStartWindow() {
     frame: false,
     resizable: false,
     skipTaskbar: true,
+    focusable: true,
     show: true,
     webPreferences: {
       nodeIntegration: true,
@@ -338,6 +343,7 @@ app.whenReady().then(async () => {
   globalShortcut.register('CommandOrControl+Shift+N', () => {
     if (noteWindow && !noteWindow.isVisible()) {
       noteWindow.setFocusable(true)
+      noteWindow.setIgnoreMouseEvents(false);
       noteWindow.show();
       noteWindow.focus();
     }
@@ -404,17 +410,21 @@ app.whenReady().then(async () => {
 
   ipcMain.on('hide-overlay', () => {
     if (noteWindow && noteWindow.isVisible()) {
+      noteWindow.setIgnoreMouseEvents(true, { forward: true });
       noteWindow.hide();
+      noteWindow.setFocusable(false);
     }
   });
   ipcMain.on('hide-start', () => {
     if (startWindow && startWindow.isVisible()) {
-      startWindow.hide();
+      console.log("Closing start window");
+      startWindow.close();
+      startWindow = null;
     }
   });
   ipcMain.on('hide-username', () => {
     if (usernamePromptWindow && usernamePromptWindow.isVisible()) {
-      usernamePromptWindow.hide();
+      usernamePromptWindow.close();
     }
   });
   ipcMain.handle('get-video-start', () => {
