@@ -24,7 +24,11 @@ class AWSManager {
       accessKeyId: data.Credentials.AccessKeyId,
       secretAccessKey: data.Credentials.SecretAccessKey,
       sessionToken: data.Credentials.SessionToken,
-    });
+      httpOptions: {
+        timeout: 2 * 60 * 1000, // 2 minutes
+      },
+      maxRetries: 3, // optional: retry failed uploads
+        });
     console.log("Instantiated S3 client successfully");
     return this; 
   }
@@ -140,13 +144,13 @@ class AWSManager {
       const metadataMap = new Map(metadataFiles.map(m => [getBaseName(m.key), m.key]));
 
       // 3️⃣ Handle orphaned annotations
-      for (const [base, annotationKey] of annotationMap.entries()) {
-        if (!videoMap.has(base) || !metadataMap.has(base)) {
-          console.log(`🗑️ Deleting orphaned annotation: ${annotationKey}`);
-          await this.s3.deleteObject({ Bucket: this.bucket, Key: annotationKey }).promise();
-          annotationMap.delete(base);
-        }
-      }
+      // for (const [base, annotationKey] of annotationMap.entries()) {
+      //   if (!videoMap.has(base) || !metadataMap.has(base)) {
+      //     console.log(`🗑️ Deleting orphaned annotation: ${annotationKey}`);
+      //     await this.s3.deleteObject({ Bucket: this.bucket, Key: annotationKey }).promise();
+      //     annotationMap.delete(base);
+      //   }
+      // }
 
       // 4️⃣ Combine all bases that have at least video + metadata
       const validBases = [...videoMap.keys()].filter(base => metadataMap.has(base));

@@ -254,9 +254,10 @@ async function connectOBS() {
   }
 }
 
-async function stopOBSRecording(timeoutMs = 60000) {
+async function stopOBSRecording(timeoutMs = 600000) {
   return new Promise(async (resolve, reject) => {
     let timeoutId;
+    let sizeInterval;
 
     try {
       const { outputActive } = await obs.call('GetRecordStatus');
@@ -268,8 +269,24 @@ async function stopOBSRecording(timeoutMs = 60000) {
       console.log('🛑 Sending StopRecord and waiting for STOPPED event...');
 
       const onStopped = async (data) => {
+        console.log(`📡 OBS RecordStateChanged: ${data.outputState}`);
+
+        // Start monitoring file size when stopping begins
+        if (data.outputState === 'OBS_WEBSOCKET_OUTPUT_STOPPING') {
+          clearInterval(sizeInterval);
+          sizeInterval = setInterval(() => {
+            try {
+              const stats = fs.statSync(data.outputPath);
+              console.log(`💾 Writing file... ${Math.round(stats.size / (1024 * 1024))} MB`);
+            } catch (e) {
+              // file may not exist yet
+            }
+          }, 2000); // log every 2s
+        }
+        
         if (data.outputState === 'OBS_WEBSOCKET_OUTPUT_STOPPED') {
           clearTimeout(timeoutId);
+          clearInterval(sizeInterval);
           obs.off('RecordStateChanged', onStopped); // cleanup
 
           if (!data.outputPath) {
@@ -279,6 +296,7 @@ async function stopOBSRecording(timeoutMs = 60000) {
 
           try {
             // 1️⃣ Upload to S3
+            console.log(`⬆️  Uploading video: ${data.outputPath}`);
             const fileBuffer = fs.readFileSync(data.outputPath);
             await awsManager.uploadFile(
               fileBuffer,
@@ -302,6 +320,7 @@ async function stopOBSRecording(timeoutMs = 60000) {
       // Fail-safe timeout
       timeoutId = setTimeout(() => {
         obs.off('RecordStateChanged', onStopped);
+        clearInterval(sizeInterval);
         console.error(`⏳ Timed out waiting for STOPPED event after ${timeoutMs}ms.`);
         resolve(); // still resolve so app can exit
       }, timeoutMs);
@@ -311,10 +330,12 @@ async function stopOBSRecording(timeoutMs = 60000) {
 
     } catch (error) {
       clearTimeout(timeoutId);
+      clearInterval(sizeInterval);
       reject(error);
     }
   });
 }
+
 
 
 
