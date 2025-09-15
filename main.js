@@ -35,6 +35,43 @@ let mainWindow = null;
 let startWindow = null;
 let usernamePromptWindow = null;
 let emojiWindow = null;
+let loadingWindow = null;
+
+function createLoadingWindow() {
+  if (loadingWindow) return;
+
+  loadingWindow = new BrowserWindow({
+    width: 300,
+    height: 150,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    resizable: false,
+    movable: true,
+    show: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    }
+  });
+
+  loadingWindow.loadFile('loading.html');
+
+  loadingWindow.once('ready-to-show', () => {
+    loadingWindow.show();
+  });
+
+  loadingWindow.on('closed', () => {
+    loadingWindow = null;
+  });
+}
+
+function closeLoadingWindow() {
+  if (loadingWindow) {
+    loadingWindow.close();
+    loadingWindow = null;
+  }
+}
 
 function createUsernamePrompt() {
   return new Promise((resolve) => {
@@ -121,6 +158,8 @@ function createEmojiWindow() {
     console.log('Emoji overlay ready');
   });
 
+  emojiWindow.setIgnoreMouseEvents(true, { forward: true });
+
   emojiWindow.on('closed', () => {
     emojiWindow = null;
   });
@@ -137,7 +176,7 @@ function createNoteWindow() {
     frame: false,
     resizable: false,
     skipTaskbar: true,
-    focusable: false,
+    focusable: true,
     show: false,
     webPreferences: {
       nodeIntegration: true,
@@ -150,6 +189,8 @@ function createNoteWindow() {
   noteWindow.once('ready-to-show', () => {
     console.log('Overlay window ready');
   });
+
+  noteWindow.setIgnoreMouseEvents(true, { forward: true });
 
   noteWindow.on('blur', () => {
     noteWindow.hide()
@@ -172,6 +213,7 @@ function createStartWindow() {
     frame: false,
     resizable: false,
     skipTaskbar: true,
+    focusable: true,
     show: true,
     webPreferences: {
       nodeIntegration: true,
@@ -191,25 +233,10 @@ function createStartWindow() {
 function attachOBSRecordingListener() {
   obs.on('RecordStateChanged', async (data) => {
     console.log('🎥 OBS RecordStateChanged event:', data);
-
-    // Only trigger on fully stopped recordings with a valid file path
-    if (data.outputState === 'OBS_WEBSOCKET_OUTPUT_STOPPED' && data.outputPath) {
-      const filePath = data.outputPath;
-      console.log(`✅ Recording finalized at: ${filePath}`);
-
-      try {
-        const fileBuffer = fs.readFileSync(filePath);
-        await awsManager.uploadFile(fileBuffer, sessionMetadata.getUsername(), sessionMetadata.getFileTimestamp(), 'videos');
-        console.log('✅ Video uploaded to S3.');
-      } catch (err) {
-        console.error('❌ Failed to upload video:', err);
-        writeToAWS = false;
-      }
-    }
   });
-
   console.log('📡 OBS recording listener attached');
 }
+
 
 async function connectOBS() {
   try {
@@ -227,9 +254,10 @@ async function connectOBS() {
   }
 }
 
-async function stopOBSRecording(timeoutMs = 60000) {
+async function stopOBSRecording(timeoutMs = 600000) {
   return new Promise(async (resolve, reject) => {
     let timeoutId;
+    let sizeInterval;
 
     try {
       const { outputActive } = await obs.call('GetRecordStatus');
@@ -241,8 +269,24 @@ async function stopOBSRecording(timeoutMs = 60000) {
       console.log('🛑 Sending StopRecord and waiting for STOPPED event...');
 
       const onStopped = async (data) => {
+        console.log(`📡 OBS RecordStateChanged: ${data.outputState}`);
+
+        // Start monitoring file size when stopping begins
+        if (data.outputState === 'OBS_WEBSOCKET_OUTPUT_STOPPING') {
+          clearInterval(sizeInterval);
+          sizeInterval = setInterval(() => {
+            try {
+              const stats = fs.statSync(data.outputPath);
+              console.log(`💾 Writing file... ${Math.round(stats.size / (1024 * 1024))} MB`);
+            } catch (e) {
+              // file may not exist yet
+            }
+          }, 2000); // log every 2s
+        }
+        
         if (data.outputState === 'OBS_WEBSOCKET_OUTPUT_STOPPED') {
           clearTimeout(timeoutId);
+          clearInterval(sizeInterval);
           obs.off('RecordStateChanged', onStopped); // cleanup
 
           if (!data.outputPath) {
@@ -252,6 +296,7 @@ async function stopOBSRecording(timeoutMs = 60000) {
 
           try {
             // 1️⃣ Upload to S3
+            console.log(`⬆️  Uploading video: ${data.outputPath}`);
             const fileBuffer = fs.readFileSync(data.outputPath);
             await awsManager.uploadFile(
               fileBuffer,
@@ -275,6 +320,7 @@ async function stopOBSRecording(timeoutMs = 60000) {
       // Fail-safe timeout
       timeoutId = setTimeout(() => {
         obs.off('RecordStateChanged', onStopped);
+        clearInterval(sizeInterval);
         console.error(`⏳ Timed out waiting for STOPPED event after ${timeoutMs}ms.`);
         resolve(); // still resolve so app can exit
       }, timeoutMs);
@@ -284,10 +330,12 @@ async function stopOBSRecording(timeoutMs = 60000) {
 
     } catch (error) {
       clearTimeout(timeoutId);
+      clearInterval(sizeInterval);
       reject(error);
     }
   });
 }
+
 
 
 
@@ -316,6 +364,7 @@ app.whenReady().then(async () => {
   globalShortcut.register('CommandOrControl+Shift+N', () => {
     if (noteWindow && !noteWindow.isVisible()) {
       noteWindow.setFocusable(true)
+      noteWindow.setIgnoreMouseEvents(false);
       noteWindow.show();
       noteWindow.focus();
     }
@@ -330,10 +379,8 @@ app.whenReady().then(async () => {
         emojiWindow.webContents.send('show-emoji', emoji);
       }
       awsManager.saveAnnotationToS3(
-        sessionMetadata.getUsername(),
-        { note: emoji, timestamp: Date.now() },
-        sessionMetadata.getFileTimestamp()
-      );
+        sessionMetadata,
+        { note: emoji, timestamp: Date.now() });
     });
   }
 
@@ -349,11 +396,15 @@ app.whenReady().then(async () => {
       isQuitting = true;
 
       try {
+        createLoadingWindow();   // show spinner while stopping + uploading
         await stopOBSRecording();
         await obs.disconnect();
       } catch (err) {
         console.error('Error during OBS shutdown:', err);
+      } finally {
+        closeLoadingWindow();    // ✅ always close spinner here
       }
+
 
       if (noteWindow) {
         noteWindow.close();
@@ -366,7 +417,7 @@ app.whenReady().then(async () => {
   ipcMain.on('save-annotation', (event, annotation) => {
     try {
       if (writeToAWS) {
-        awsManager.saveAnnotationToS3(sessionMetadata.getUsername(), annotation, sessionMetadata.getFileTimestamp());
+        awsManager.saveAnnotationToS3(sessionMetadata, annotation);
       }
     } catch (err) {
       console.error('Error saving annotation:', err);
@@ -380,17 +431,21 @@ app.whenReady().then(async () => {
 
   ipcMain.on('hide-overlay', () => {
     if (noteWindow && noteWindow.isVisible()) {
+      noteWindow.setIgnoreMouseEvents(true, { forward: true });
       noteWindow.hide();
+      noteWindow.setFocusable(false);
     }
   });
   ipcMain.on('hide-start', () => {
     if (startWindow && startWindow.isVisible()) {
-      startWindow.hide();
+      console.log("Closing start window");
+      startWindow.close();
+      startWindow = null;
     }
   });
   ipcMain.on('hide-username', () => {
     if (usernamePromptWindow && usernamePromptWindow.isVisible()) {
-      usernamePromptWindow.hide();
+      usernamePromptWindow.close();
     }
   });
   ipcMain.handle('get-video-start', () => {

@@ -24,7 +24,11 @@ class AWSManager {
       accessKeyId: data.Credentials.AccessKeyId,
       secretAccessKey: data.Credentials.SecretAccessKey,
       sessionToken: data.Credentials.SessionToken,
-    });
+      httpOptions: {
+        timeout: 2 * 60 * 1000, // 2 minutes
+      },
+      maxRetries: 3, // optional: retry failed uploads
+        });
     console.log("Instantiated S3 client successfully");
     return this; 
   }
@@ -131,57 +135,77 @@ class AWSManager {
       const annotations = await this.listFilesFromS3(`${username}/annotations/`, '.json');
       const metadataFiles = await this.listFilesFromS3(`${username}/metadata/`, '.json');
 
-      // Helper: parse timestamp from filename "2025-08-19 22-13-32.json"
-      const parseTimestampFromFilename = (filename) => {
-        const base = filename.replace(/\.(json|mkv)$/, '');
+      // Helper: strip extension → get base name
+      const getBaseName = (key) => key.split('/').pop().replace(/\.(json|mkv)$/, '');
+
+      // 2️⃣ Index files by base name
+      const videoMap = new Map(videos.map(v => [getBaseName(v.key), v.key]));
+      const annotationMap = new Map(annotations.map(a => [getBaseName(a.key), a.key]));
+      const metadataMap = new Map(metadataFiles.map(m => [getBaseName(m.key), m.key]));
+
+      // 3️⃣ Handle orphaned annotations
+      // for (const [base, annotationKey] of annotationMap.entries()) {
+      //   if (!videoMap.has(base) || !metadataMap.has(base)) {
+      //     console.log(`🗑️ Deleting orphaned annotation: ${annotationKey}`);
+      //     await this.s3.deleteObject({ Bucket: this.bucket, Key: annotationKey }).promise();
+      //     annotationMap.delete(base);
+      //   }
+      // }
+
+      // 4️⃣ Combine all bases that have at least video + metadata
+      const validBases = [...videoMap.keys()].filter(base => metadataMap.has(base));
+
+      // 5️⃣ Sort valid bases by metadata timestamp descending
+      const parseTimestampFromFilename = (base) => {
         const [datePart, timePart] = base.split(' ');
         const [year, month, day] = datePart.split('-').map(Number);
         const [hour, minute, second] = timePart.split('-').map(Number);
         return new Date(year, month - 1, day, hour, minute, second).getTime();
       };
+      validBases.sort((a, b) => parseTimestampFromFilename(b) - parseTimestampFromFilename(a));
 
-      // Sort all files by filename timestamp, newest first
-      videos.sort((a, b) => parseTimestampFromFilename(b.key) - parseTimestampFromFilename(a.key));
-      annotations.sort((a, b) => parseTimestampFromFilename(b.key) - parseTimestampFromFilename(a.key));
-      metadataFiles.sort((a, b) => parseTimestampFromFilename(b.key) - parseTimestampFromFilename(a.key));
-
-      const numSessions = Math.min(videos.length, annotations.length, metadataFiles.length);
-
-      for (let i = 0; i < numSessions; i++) {
-        let metadataObj;
+      // 6️⃣ Build sessions
+      const debugTable = [];
+      for (const base of validBases) {
         try {
-          const metadataBuffer = await this.getFileFromS3(metadataFiles[i].key);
-          metadataObj = JSON.parse(metadataBuffer.toString('utf8'));
+          const metadataBuffer = await this.getFileFromS3(metadataMap.get(base));
+          const metadataObj = JSON.parse(metadataBuffer.toString('utf8'));
+
+          const videoUrl = await this._safeGetSignedUrl(videoMap.get(base));
+          const metadataUrl = await this._safeGetSignedUrl(metadataMap.get(base));
+
+          let annotationUrl = null;
+          if (annotationMap.has(base)) {
+            annotationUrl = await this._safeGetSignedUrl(annotationMap.get(base));
+          }
+
+          // Skip if mandatory signed URLs failed
+          if (!videoUrl || !metadataUrl) {
+            console.warn(`Skipping session for ${base} due to signed URL error`);
+            continue;
+          }
+
+          sessions.push({
+            title: metadataObj.title || `Session`,
+            videoStartTimestamp: metadataObj.videoStartTimestamp || 0,
+            videoUrl,
+            annotationUrl, // null if no annotation
+            metadataUrl,
+          });
+
+          debugTable.push({
+            base,
+            hasVideo: !!videoMap.get(base),
+            hasMetadata: !!metadataMap.get(base),
+            hasAnnotation: !!annotationMap.get(base),
+          });
+
         } catch (err) {
-          console.warn(`Skipping session due to metadata load error: ${metadataFiles[i].key}`, err);
-          continue;
+          console.warn(`Skipping session for ${base} due to metadata load error`, err);
         }
-
-        // 2️⃣ Generate signed URLs safely
-        const videoUrl = await this._safeGetSignedUrl(videos[i].key);
-        const annotationUrl = await this._safeGetSignedUrl(annotations[i].key);
-        const metadataUrl = await this._safeGetSignedUrl(metadataFiles[i].key);
-
-        if (!videoUrl || !annotationUrl || !metadataUrl) {
-          console.warn(`Skipping session due to signed URL error`);
-          continue;
-        }
-
-        // Debug print for videoStartTimestamp
-        console.log('Loaded session:', metadataFiles[i].key, 'videoStartTimestamp:', metadataObj.videoStartTimestamp);
-
-        // 3️⃣ Push session info
-        sessions.push({
-          title: metadataObj.title || `Session ${i + 1}`,
-          videoStartTimestamp: metadataObj.videoStartTimestamp || 0,
-          videoUrl,
-          annotationUrl,
-          metadataUrl,
-        });
       }
 
-      // Ensure sessions are sorted newest first by filename timestamp
-      sessions.sort((a, b) => b.videoStartTimestamp - a.videoStartTimestamp);
+      console.table(debugTable);
 
     } catch (err) {
       console.error("Error loading sessions from S3:", err);
@@ -290,20 +314,22 @@ async _safeGetSignedUrl(key) {
     return true;
   }
 
-  async saveAnnotationToS3(username, annotation, fileTimestamp) {
+  async saveAnnotationToS3(sessionMetadata, annotation) {
     try {
         // Step 1: Try to fetch existing file from S3
         let annotations = [];
+        let username = sessionMetadata.getUsername();
+        let timestamp = sessionMetadata.getFileTimestamp();
         try {
         // maybe get all objects for debugging
         const s3Object = await this.s3.getObject({
             Bucket: this.bucket,
-            Key: `${username}/annotations/${fileTimestamp}.json`,
+            Key: `${username}/annotations/${timestamp}.json`,
         }).promise();
         console.log(`Trying to save annotation to s3://${s3Object.Bucket}/${s3Object.Key}`);
 
         const body = s3Object.Body.toString();
-        annotations = JSON.parse(body);
+        annotations =  JSON.parse(body);
         } catch (err) {
         if (err.code === 'NoSuchKey') {
             console.log('File not found on S3 — starting fresh.');
@@ -319,15 +345,12 @@ async _safeGetSignedUrl(key) {
         const buffer = Buffer.from(JSON.stringify(annotations, null, 2));
 
         // Step 4: Upload to S3
-        await this.uploadFile(buffer, username, fileTimestamp, 'annotations');
+        await this.uploadFile(buffer, username, timestamp, 'annotations');
         console.log('✅ Annotation saved to S3');
     } catch (err) {
         console.error('❌ Error saving annotation to S3:', err);
     }
     }
-
-    
-
 }
 
 module.exports = AWSManager;
