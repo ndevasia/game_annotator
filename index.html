@@ -290,6 +290,23 @@
     Load More Sessions
   </button>
 
+  <!-- Back to Home Screen button -->
+  <button id="back-home" style="
+    margin: 20px auto;
+    display: block;
+    padding: 10px 20px;
+    border: 1px solid #ff00ff;
+    border-radius: 6px;
+    background: rgba(40,0,60,0.6);
+    color: #ff00ff;
+    font-family: 'Share Tech Mono', monospace;
+    cursor: pointer;
+    text-shadow: 0 0 5px #ff00ff, 0 0 10px #ff00ff, 0 0 15px #ff00ff;
+    transition: all 0.2s ease-in-out;
+  ">
+    Back to Home Screen
+  </button>
+
   <script>
     const fs = require('fs');
     const path = require('path');
@@ -361,6 +378,46 @@
         hour12: true, month: 'numeric', day: 'numeric', year: '2-digit'
       };
       heading.textContent = `${session.title} – ${date.toLocaleTimeString(undefined, options)}`;
+      // Delete Session button
+      const deleteSessionBtn = document.createElement('button');
+      deleteSessionBtn.textContent = "Delete Session";
+
+      // neon/cyberpunk styling
+      deleteSessionBtn.style.marginLeft = "15px";
+      deleteSessionBtn.style.padding = "6px 14px";
+      deleteSessionBtn.style.border = "1px solid #ff00ff";
+      deleteSessionBtn.style.borderRadius = "6px";
+      deleteSessionBtn.style.background = "rgba(40,0,60,0.6)";
+      deleteSessionBtn.style.color = "#ff00ff";
+      deleteSessionBtn.style.fontFamily = "'Share Tech Mono', monospace";
+      deleteSessionBtn.style.cursor = "pointer";
+      deleteSessionBtn.style.textShadow = "0 0 5px #ff00ff, 0 0 10px #ff00ff, 0 0 15px #ff00ff";
+      deleteSessionBtn.style.transition = "all 0.2s ease-in-out";
+
+      // hover effect
+      deleteSessionBtn.onmouseenter = () => {
+        deleteSessionBtn.style.background = "rgba(255,0,255,0.2)";
+        deleteSessionBtn.style.color = "#00ffff";
+        deleteSessionBtn.style.textShadow = "0 0 8px #00ffff, 0 0 16px #00ffff";
+      };
+      deleteSessionBtn.onmouseleave = () => {
+        deleteSessionBtn.style.background = "rgba(40,0,60,0.6)";
+        deleteSessionBtn.style.color = "#ff00ff";
+        deleteSessionBtn.style.textShadow = "0 0 5px #ff00ff, 0 0 10px #ff00ff, 0 0 15px #ff00ff";
+      };
+
+      deleteSessionBtn.onclick = async () => {
+        if (!confirm("Are you sure you want to delete this entire session (video, metadata, and annotations)?")) return;
+        try {
+          await client.deleteSession(session.username, session.fileTimestamp);
+          sessionDiv.remove();
+          console.log(`✅ Deleted session ${session.fileTimestamp}`);
+        } catch (err) {
+          console.error("Failed to delete session:", err);
+          alert("Error deleting session.");
+        }
+      };
+      heading.appendChild(deleteSessionBtn);
 
       const video = document.createElement('video');
       video.controls = true;
@@ -385,6 +442,22 @@
             note.className = 'annotation';
             note.innerHTML = `<strong>${timeStr}</strong>: ${a.note}`;
             note.onclick = () => { video.currentTime = offset; video.play(); };
+
+            // Back to Home button logic
+            const backBtn = document.getElementById('back-home');
+            backBtn.addEventListener('mouseenter', () => {
+              backBtn.style.background = "rgba(255,0,255,0.2)";
+              backBtn.style.color = "#00ffff";
+              backBtn.style.textShadow = "0 0 8px #00ffff, 0 0 16px #00ffff";
+            });
+            backBtn.addEventListener('mouseleave', () => {
+              backBtn.style.background = "rgba(40,0,60,0.6)";
+              backBtn.style.color = "#ff00ff";
+              backBtn.style.textShadow = "0 0 5px #ff00ff, 0 0 10px #ff00ff, 0 0 15px #ff00ff";
+            });
+            backBtn.addEventListener('click', () => {
+              ipcRenderer.send('open-home');
+            });
 
             const deleteBtn = document.createElement('button');
             deleteBtn.innerHTML = '✕';
@@ -412,6 +485,7 @@
       sessionDiv.appendChild(annotationDiv);
       sessionContainer.appendChild(sessionDiv);
     }
+
   </script>
 </body>
 

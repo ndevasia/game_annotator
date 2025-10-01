@@ -1,6 +1,7 @@
 const { app, BrowserWindow, globalShortcut, ipcMain } = require('electron');
 const fs = require('fs');
 const OBSWebSocket = require('obs-websocket-js');
+const { spawnTracked, killAllChildren } = require("./backend/processManager.js");
 const obs = new OBSWebSocket.OBSWebSocket();
 const isDebug = process.argv.includes('--debug');
 const path = require('path');
@@ -33,9 +34,15 @@ if (app.isPackaged) {
 let noteWindow = null;
 let mainWindow = null;
 let startWindow = null;
+let homeWindow = null;
 let usernamePromptWindow = null;
 let emojiWindow = null;
 let loadingWindow = null;
+
+let obsListenerAttached = false;
+let isOBSConnected = false;
+let shortcutsRegistered = false;
+let isQuitting = false;
 
 function createLoadingWindow() {
   if (loadingWindow) return;
@@ -129,7 +136,6 @@ function createMainWindow() {
   });
   mainWindow.on('closed', () => {
     mainWindow = null;
-    app.quit();
   });
 }
 
@@ -229,18 +235,88 @@ function createStartWindow() {
 
 }
 
+function createHomeWindow() {
+  return new Promise((resolve) => {
+    // If already open, just focus it and return a fresh promise tied to user action
+    if (homeWindow) {
+      homeWindow.focus();
+      return; // do not resolve yet, we still need user input
+    }
+
+    homeWindow = new BrowserWindow({
+      width: 400,
+      height: 300,
+      alwaysOnTop: true,
+      transparent: true,
+      frame: false,
+      resizable: false,
+      skipTaskbar: true,
+      focusable: true,
+      show: false,
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false,
+      },
+    });
+
+    homeWindow.loadFile('home.html');
+
+    homeWindow.once('ready-to-show', () => {
+      homeWindow.show();
+      console.log('Home window ready');
+    });
+
+    // Handlers for user actions
+    const handleStart = () => {
+      console.log("User chose: start new session");
+      cleanup();
+      resolve("start");
+    };
+    const handlePast = () => {
+      console.log("User chose: view past sessions");
+      cleanup();
+      resolve("past");
+    };
+
+    // Cleanup function to remove listeners + close window
+    function cleanup() {
+      ipcMain.removeListener('open-start-session', handleStart);
+      ipcMain.removeListener('open-past-sessions', handlePast);
+      if (homeWindow) {
+        homeWindow.close();
+        homeWindow = null;
+      }
+    }
+
+    // Always attach fresh listeners
+    ipcMain.on('open-start-session', handleStart);
+    ipcMain.on('open-past-sessions', handlePast);
+
+    // Ensure window closure also cleans up listeners
+    homeWindow.on('closed', () => cleanup());
+  });
+}
+
+
 // Attach this ONCE during your app initialization
 function attachOBSRecordingListener() {
+  if (obsListenerAttached) return;
   obs.on('RecordStateChanged', async (data) => {
     console.log('🎥 OBS RecordStateChanged event:', data);
   });
+  obsListenerAttached = true;
   console.log('📡 OBS recording listener attached');
 }
 
 
 async function connectOBS() {
+  if (isOBSConnected) {
+    console.log('OBS already connected');
+    return;
+  }
   try {
     await obs.connect();
+    isOBSConnected = true;
     console.log('Connected to OBS WebSocket');
     const { outputActive } = await obs.call('GetRecordStatus');
     if (!outputActive) {
@@ -253,6 +329,7 @@ async function connectOBS() {
     console.error('Failed to connect/start OBS recording:', error);
   }
 }
+
 
 async function stopOBSRecording(timeoutMs = 600000) {
   return new Promise(async (resolve, reject) => {
@@ -336,34 +413,13 @@ async function stopOBSRecording(timeoutMs = 600000) {
   });
 }
 
-
-
-
-let isQuitting = false;
-
-app.whenReady().then(async () => {
-  console.log("A: App starting");
-  if (!sessionMetadata.getUsername()) {
-    console.log("Username required to proceed");
-   await createUsernamePrompt();
-  } 
-  console.log("Username is ", sessionMetadata.getUsername());
-  awsManager = new AWSManager(sessionMetadata.getUsername());
-  await awsManager.init();
-  if (isDebug) {
-    console.log('DEBUG MODE: launching main window only');
-    createMainWindow();
-    return;
-  }
-  attachOBSRecordingListener();
-  createStartWindow();
-  await connectOBS();        // Wait for OBS to be ready and start recording
-  createNoteWindow();        // Then open the overlay window
-  createEmojiWindow();
+function registerShortcuts() {
+  if (shortcutsRegistered) return;
+  shortcutsRegistered = true;
 
   globalShortcut.register('CommandOrControl+Shift+N', () => {
     if (noteWindow && !noteWindow.isVisible()) {
-      noteWindow.setFocusable(true)
+      noteWindow.setFocusable(true);
       noteWindow.setIgnoreMouseEvents(false);
       noteWindow.show();
       noteWindow.focus();
@@ -378,40 +434,86 @@ app.whenReady().then(async () => {
       if (emojiWindow) {
         emojiWindow.webContents.send('show-emoji', emoji);
       }
-      awsManager.saveAnnotationToS3(
-        sessionMetadata,
-        { note: emoji, timestamp: Date.now() });
+      // if awsManager exists, save (guard)
+      if (awsManager) {
+        awsManager.saveAnnotationToS3(sessionMetadata, { note: emoji, timestamp: Date.now() });
+      }
     });
   }
 
-
   globalShortcut.register('CommandOrControl+Shift+Q', async () => {
     console.log('Quit hotkey pressed: stopping recording');
-    if (isQuitting) return; // already handled
-
-    // Only run shutdown logic in packaged OR dev (not both)
-    if ((app.isPackaged && !isDebug) || (!app.isPackaged && !isDebug)) {
-      console.log('Gracefully stopping OBS before quitting...');
-      
-      isQuitting = true;
-
-      try {
-        createLoadingWindow();   // show spinner while stopping + uploading
-        await stopOBSRecording();
-        await obs.disconnect();
-      } catch (err) {
-        console.error('Error during OBS shutdown:', err);
-      } finally {
-        closeLoadingWindow();    // ✅ always close spinner here
-      }
-
-
-      if (noteWindow) {
-        noteWindow.close();
-      }
-
-      createMainWindow(); // launch playback
+    if (isQuitting) return;
+    isQuitting = true;
+    try {
+      createLoadingWindow();
+      await stopOBSRecording();
+      await disconnectOBSIfNeeded();
+    } catch (err) {
+      console.error('Error during OBS shutdown:', err);
+    } finally {
+      closeLoadingWindow();
     }
+    if (noteWindow) {
+      noteWindow.close();
+    }
+    createMainWindow();
+  });
+}
+
+// --- when disconnecting, reset the flag ---
+async function disconnectOBSIfNeeded() {
+  try {
+    if (isOBSConnected) {
+      await obs.disconnect();
+      isOBSConnected = false;
+    }
+  } catch (err) {
+    console.warn('Error disconnecting OBS:', err);
+  }
+}
+
+async function startSession() {
+  console.log('➡ User starting session flow');
+  attachOBSRecordingListener();
+  registerShortcuts();
+  createStartWindow();
+  await connectOBS();        // wait until connected and recording started
+  createNoteWindow();        // open overlay window
+  createEmojiWindow();
+}
+
+async function handleHomeChoice(choice) {
+  if (choice === 'start') {
+    // If mainWindow is open (user came from past sessions), close it:
+    if (mainWindow) {
+      try { mainWindow.close(); } catch (e) {}
+      mainWindow = null;
+    }
+    await startSession();
+  } else if (choice === 'past') {
+    // Make sure we don't leave duplicate mainWindows
+    if (!mainWindow) createMainWindow();
+    else mainWindow.show();
+  }
+}
+
+app.whenReady().then(async () => {
+  console.log("A: App starting");
+  if (!sessionMetadata.getUsername()) {
+    await createUsernamePrompt();
+  }
+  awsManager = new AWSManager(sessionMetadata.getUsername());
+  await awsManager.init();
+
+  if (isDebug) {
+    createMainWindow();
+    return;
+  }
+
+  // Blocking prompt at startup:
+  const choice = await createHomeWindow();
+  await handleHomeChoice(choice);
   });
 
   ipcMain.on('save-annotation', (event, annotation) => {
@@ -443,6 +545,17 @@ app.whenReady().then(async () => {
       startWindow = null;
     }
   });
+  ipcMain.on('open-past-sessions', () => {
+    createMainWindow();
+  });
+  ipcMain.on('open-home', async () => {
+  if (mainWindow && mainWindow.isVisible()) {
+    mainWindow.close();
+    mainWindow = null;
+  }
+  const choice = await createHomeWindow();
+  await handleHomeChoice(choice);
+});
   ipcMain.on('hide-username', () => {
     if (usernamePromptWindow && usernamePromptWindow.isVisible()) {
       usernamePromptWindow.close();
@@ -451,6 +564,11 @@ app.whenReady().then(async () => {
   ipcMain.handle('get-video-start', () => {
     return videoStartTimestamp;
     });
+  ipcMain.on('close-app', () => {
+    console.log("Closing home");
+    homeWindow.close();
+    homeWindow = null;
+    app.quit();
   });
   function maybeWriteSessionMetadata() {
     if (sessionMetadata.getTitle() && sessionMetadata.getVideoStartTimestamp()) {

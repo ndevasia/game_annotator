@@ -287,6 +287,39 @@ async _safeGetSignedUrl(key) {
     return new Date(year, month - 1, day, hour, minute, second).getTime();
   }
 
+  async deleteSession(username, fileTimestamp) {
+  const keys = [
+    `${username}/videos/${fileTimestamp}.mkv`,
+    `${username}/metadata/${fileTimestamp}.json`,
+    `${username}/annotations/${fileTimestamp}.json`,
+  ];
+
+  try {
+    console.log(`🗑 Deleting session ${fileTimestamp} for user ${username}...`);
+
+    // Try deleting all three, ignoring missing files
+    await Promise.all(keys.map(async (Key) => {
+      try {
+        await this.s3.deleteObject({ Bucket: this.bucket, Key }).promise();
+        console.log(`✅ Deleted s3://${this.bucket}/${Key}`);
+      } catch (err) {
+        if (err.code === "NoSuchKey") {
+          console.warn(`⚠️ File not found: ${Key}`);
+        } else {
+          console.error(`❌ Failed to delete ${Key}:`, err);
+        }
+      }
+    }));
+
+    console.log(`✨ Finished deleting session ${fileTimestamp}`);
+    return true;
+  } catch (err) {
+    console.error(`❌ Error deleting session ${fileTimestamp}:`, err);
+    return false;
+  }
+}
+
+
   async deleteAnnotation(username, annotationUrl, targetTimestamp) {
     // Parse S3 key from the signed URL
     const url = new URL(annotationUrl);
