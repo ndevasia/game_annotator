@@ -1,3 +1,1 @@
-For OBS, I needed to disable authentication as well as set a particular source for the display. 
-
-I also manually set the output source to this folder/Videos.
+Setup instructions (in progress) [here](https://docs.google.com/document/d/1gVy6TKYwYPkWw4MY0mRcn8KfiVHXqvr3y4dteOi1POU/edit?usp=sharing).
