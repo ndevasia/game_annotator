@@ -2,32 +2,37 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Note Annotation</title>
-  <!-- Link to external stylesheet -->
+  <title>Start Session</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <textarea id="start" placeholder="What game are you playing today?"></textarea>
-    <button class="button-small" onclick="saveStart()">Submit</button>
+  <button class="button-small" onclick="saveStart()">Submit</button>
 
   <script>
-  const { ipcRenderer } = require('electron');
+    const { ipcRenderer } = require('electron');
 
-  function saveStart() {
-    const title = document.getElementById('start').value;
-    ipcRenderer.send('save-start', { title });
-    document.getElementById('start').value = '';
-    ipcRenderer.send('hide-start');
-  }
+    function saveStart() {
+      const title = document.getElementById('start').value.trim();
 
-  // Trigger saveStart() on Enter key
-  const noteInput = document.getElementById('start');
-  noteInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault(); // prevent adding a new line
-      saveStart();
+      if (!title) {
+        alert("Please enter a game title before submitting.");
+        return;
+      }
+
+      ipcRenderer.send('save-start', { title });
+      document.getElementById('start').value = '';
+      ipcRenderer.send('hide-start');
     }
-  });
-</script>
+
+    // Trigger saveStart() on Enter key
+    const noteInput = document.getElementById('start');
+    noteInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        saveStart();
+      }
+    });
+  </script>
 </body>
 </html>
