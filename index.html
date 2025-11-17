@@ -10,6 +10,7 @@
       margin: 0;
       background: linear-gradient(180deg, #0d0221, #1a1a40, #2e0249);
       color: #eee;
+      min-height: 100vh;
     }
 
     /* Section headers under the main neon heading */
@@ -80,6 +81,26 @@
     .annotation-content {
       flex: 1; /* takes all available space */
     }
+
+    /* Neon spinner */
+    .loader {
+      border: 6px solid rgba(0, 255, 255, 0.1);
+      border-top: 6px solid #00ffff;
+      border-radius: 50%;
+      width: 60px;
+      height: 60px;
+      animation: spin 1s linear infinite;
+
+      margin: 40px auto;
+      display: none; /* hidden by default */
+      box-shadow: 0 0 12px #00ffff, 0 0 24px #00ffff;
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
 
     .annotation button {
       display: none;              /* hidden by default */
@@ -284,6 +305,7 @@
 </head>
   <body>
   <h1 class="neon-heading">Annotated Sessions</h1>
+  <div id="loader" class="loader"></div>
   <div id="sessions"></div>
   <button id="load-more" style="display:none; margin: 20px auto; padding: 10px 20px;
     background: #00ffff; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">
@@ -322,9 +344,14 @@
     const PAGE_SIZE = 5;
 
     ipcRenderer.on('session-data', async (event, username) => {
-      console.log('Received session metadata:', username);
+      const loader = document.getElementById("loader");
+      loader.style.display = "block";   // ⬅ show loading animation
+
+      sessionContainer.innerHTML = "";  // clear
+      loadMoreBtn.style.display = "none";
 
       if (!username) {
+        loader.style.display = "none";
         sessionContainer.innerHTML = '<p>No username found in session data.</p>';
         return;
       }
@@ -334,23 +361,24 @@
 
       try {
         allSessions = await client.loadSessionsFromS3(username);
-        console.log("Loaded sessions from s3 ", allSessions);
+
+        loader.style.display = "none";   // ⬅ hide loader when done
 
         if (allSessions.length === 0) {
           sessionContainer.innerHTML = '<p>No sessions found in S3.</p>';
           return;
         }
 
-        // clear and reset
-        sessionContainer.innerHTML = '';
         visibleCount = 0;
         renderNextPage();
 
       } catch (err) {
         console.error('Error loading sessions from S3:', err);
+        loader.style.display = "none";
         sessionContainer.innerHTML = '<p>Error loading sessions.</p>';
       }
     });
+
 
     function renderNextPage() {
       const next = allSessions.slice(visibleCount, visibleCount + PAGE_SIZE);
@@ -409,9 +437,9 @@
       deleteSessionBtn.onclick = async () => {
         if (!confirm("Are you sure you want to delete this entire session (video, metadata, and annotations)?")) return;
         try {
-          await client.deleteSession(session.username, session.fileTimestamp);
+          await client.deleteSession(session.videoUrl);
           sessionDiv.remove();
-          console.log(`✅ Deleted session ${session.fileTimestamp}`);
+          console.log(`✅ Deleted session ${session.videoUrl}`);
         } catch (err) {
           console.error("Failed to delete session:", err);
           alert("Error deleting session.");

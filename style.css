@@ -8,6 +8,10 @@ body {
   color: #ff00ff;
   font-family: "Orbitron", sans-serif;
   text-shadow: 0 0 10px #ff00ff, 0 0 20px #00ffff;
+  min-height: 100vh;
+  border: 2px solid rgba(255, 0, 255, 0.6);
+  box-shadow: 0 0 20px #ff00ff;
+  box-sizing: border-box;
 }
 
 textarea {
