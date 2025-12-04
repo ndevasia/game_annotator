@@ -18,19 +18,22 @@
     "obs-websocket-js": "^5.0.6"
   },
   "build": {
-  "appId": "com.example.gameannotator",
-  "productName": "GameAnnotator",
-  "files": [
-    "**/*"
-  ],
-  "mac": {
-    "category": "public.app-category.productivity",
-    "target": ["dmg", "zip"],
-    "icon": "icons/icon.icns"
-  },
-  "win": {
-    "target": "nsis",
-    "icon": "icons/icon.ico"
-  }
+    "appId": "com.example.gameannotator",
+    "productName": "GameAnnotator",
+    "files": [
+      "**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "icons/icon.icns"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "icons/icon.ico"
+    }
   }
 }
