@@ -368,15 +368,17 @@ async function stopOBSRecording(timeoutMs = 600000) {
 
           try {
             // 1️⃣ Upload to S3
-            console.log(`⬆️  Uploading video: ${data.outputPath}`);
-            const fileBuffer = fs.readFileSync(data.outputPath);
-            await awsManager.uploadFile(
-              fileBuffer,
-              sessionMetadata.getUsername(),
-              sessionMetadata.getFileTimestamp(),
-              'videos'
-            );
-            console.log('✅ Video uploaded to S3.');
+            if (writeToAWS) {
+              console.log(`⬆️  Uploading video: ${data.outputPath}`);
+              const fileBuffer = fs.readFileSync(data.outputPath);
+              await awsManager.uploadFile(
+                fileBuffer,
+                sessionMetadata.getUsername(),
+                sessionMetadata.getFileTimestamp(),
+                'videos'
+              );
+              console.log('✅ Video uploaded to S3.');
+            }
 
             // 2️⃣ Delete local file
             await fs.promises.unlink(data.outputPath);
