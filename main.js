@@ -8,10 +8,12 @@ const path = require('path');
 const AWSManager = require('./backend/aws.js');
 const SessionMetadata = require('./backend/metadata.js')
 const sessionMetadata = new SessionMetadata();
+const { readUsername, writeUsername, submitUsername } = require('./username.js');
+const os = require('./os.js')
+
 let awsManager = null;
 
 // Instead of this, write it as an env variable and not a weird one off file
-const configPath = path.join(app.getPath('userData'), 'config.json');
 var writeToAWS = true;
 
 const emojiReactions = {
@@ -22,10 +24,6 @@ const emojiReactions = {
   'CommandOrControl+5': '😢',  // Sad
   'CommandOrControl+6': '😠',  // Angry
 };
-
-if (fs.existsSync(configPath)) {
-  userConfig = JSON.parse(fs.readFileSync(configPath));
-}
 
 if (app.isPackaged) {
   console.log("Running packaged version of the app");
@@ -81,7 +79,13 @@ function closeLoadingWindow() {
 }
 
 function createUsernamePrompt() {
-  return new Promise((resolve) => {
+  return new Promise(async (resolve) => {
+    const username = await readUsername();
+    if (username) {
+      sessionMetadata.setUsername(username);
+      return resolve();
+    }
+
     const promptWindow = new BrowserWindow({
       width: 400,
       height: 200,
@@ -101,15 +105,6 @@ function createUsernamePrompt() {
 
     ipcMain.once('username-submitted', async (event, username) => {
       sessionMetadata.setUsername(username);
-
-      // Save to config.json
-      const configToWrite = { username };
-      fs.writeFileSync(configPath, JSON.stringify(configToWrite, null, 2));
-      console.log('Saved username:', username);
-      awsManager = new AWSManager(username);
-      await awsManager.init();
-      awsManager.createFileStructure(username)
-
       promptWindow.close();
       resolve();
     });
