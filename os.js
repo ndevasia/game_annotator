@@ -7,11 +7,7 @@ var osModule;
 if (platform === 'win32') {
     osModule = require('./os/windows.js');
 } else if (platform === 'darwin') {
-    try {
-        osModule = require('./os/macos.js');
-    } catch (error) {
-        throw new Error('macOS support not yet implemented. Please create os/macos.js with getFocusedWindow and setFocusedWindow functions.');
-    }
+    osModule = require('./os/macos.js');
 } else {
     throw new Error('Unsupported platform: ' + platform);
 }
