@@ -42,6 +42,7 @@
     ipcRenderer.on('show-annotation-ui', () => {
       const annotationUI = document.getElementById('annotation-ui');
       if (annotationUI) annotationUI.style.display = 'flex';
+      noteInput.focus();
     });
 
     ipcRenderer.on('emoji-reaction', (event, emoji) => {
