@@ -357,8 +357,15 @@ async _safeGetSignedUrl(key) {
 
     let annotations = JSON.parse(data.Body.toString());
 
+    let oldLength = annotations.length;
+
     // 2. Filter out the entry with that timestamp (or id if you add one)
     annotations = annotations.filter(a => a.timestamp !== targetTimestamp);
+
+    if (annotations.length == oldLength) {
+      // Failed to delete something!?
+      throw `Didn't find annotation at timestamp ${targetTimestamp}`;
+    }
 
     // 3. Re-upload JSON
     await this.s3.putObject({
@@ -367,8 +374,6 @@ async _safeGetSignedUrl(key) {
       Body: JSON.stringify(annotations, null, 2),
       ContentType: "application/json"
     }).promise();
-
-    return true;
   }
 
   async saveAnnotationToS3(sessionMetadata, annotation) {
