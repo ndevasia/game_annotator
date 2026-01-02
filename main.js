@@ -501,11 +501,6 @@ app.whenReady().then(async () => {
   awsManager = new AWSManager(sessionMetadata.getUsername());
   await awsManager.init();
 
-  if (isDebug) {
-    createMainWindow();
-    return;
-  }
-
   // Blocking prompt at startup:
   const choice = await createHomeWindow();
   await handleHomeChoice(choice);
