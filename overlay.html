@@ -8,20 +8,27 @@
 </head>
 <body>
   <div id="annotation-ui">
-    <textarea id="note" placeholder="Type your annotation..."></textarea>
+    <textarea id="note" placeholder="Type your annotation or press Escape to exit..."></textarea>
     <button class = "button-small" onclick="saveNote()">Save</button>
   </div>
 
   <script>
     const { ipcRenderer } = require('electron');
 
+    /**
+     * Abandon the note and hide the overlay.
+     */
+    function hideOverlay() {
+      document.getElementById('note').value = '';
+      ipcRenderer.send('hide-overlay');
+    }
+
     function saveNote() {
       const note = document.getElementById('note').value;
       if (!note.trim()) return; // optional: ignore empty notes
       const timestamp = Date.now();
       ipcRenderer.send('save-annotation', { note, timestamp });
-      document.getElementById('note').value = '';
-      ipcRenderer.send('hide-overlay');
+      hideOverlay();
     }
 
     // Trigger saveNote() on Enter key
@@ -32,6 +39,18 @@
         saveNote();
       }
     });
+
+    document.addEventListener('keydown', event => {
+      // If the user presses "Escape" and the note is empty, she probably wants
+      // to close the annotation overlay because she opened it on accident.
+      if (event.key == 'Escape') {
+        const note = document.getElementById('note').value;
+        if (!note.trim()) {
+          hideOverlay();
+          event.preventDefault();
+        }
+      }
+    })
 
     ipcRenderer.on('emoji-reaction', (event, emoji) => {
       const annotationUI = document.getElementById('annotation-ui');
