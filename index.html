@@ -492,11 +492,11 @@
             deleteBtn.onclick = async (e) => {
               e.stopPropagation();
               try {
-                await client.deleteAnnotation(session.username, session.annotationUrl, a.timestamp);
+                await client.deleteAnnotation(session.annotationUrl, a.timestamp);
                 note.remove();
               } catch (err) {
                 console.error("Failed to delete annotation:", err);
-                alert("Error deleting annotation.");
+                alert(`Error deleting annotation: ${err}`);
               }
             };
             note.appendChild(deleteBtn);
