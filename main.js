@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut, ipcMain } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, dialog } = require('electron');
 const fs = require('fs');
 const OBSWebSocket = require('obs-websocket-js');
 const { spawnTracked, killAllChildren } = require("./backend/processManager.js");
@@ -40,7 +40,7 @@ let loadingWindow = null;
 let obsListenerAttached = false;
 let isOBSConnected = false;
 let shortcutsRegistered = false;
-let isQuitting = false;
+let isUploading = false;
 
 function createLoadingWindow() {
   if (loadingWindow) return;
@@ -129,6 +129,28 @@ function createMainWindow() {
     console.log("Sending username to index.html ", sessionMetadata.getUsername());
     mainWindow.webContents.send('session-data', sessionMetadata.getUsername());
   });
+
+  mainWindow.on('close', (e) => {
+    // If the app is in the middle of uploading, don't show the box
+    if (isUploading || isReturningHome) return;
+
+    // Prevent the window from closing immediately
+    e.preventDefault();
+
+    const choice = dialog.showMessageBoxSync(mainWindow, {
+      type: 'question',
+      buttons: ['Yes, Quit', 'No, Keep it open'],
+      title: 'Confirm Quit',
+      message: 'Are you sure you want to quit the app?',
+      defaultId: 0,
+      cancelId: 1
+    });
+
+    if (choice === 0) {
+      app.quit(); 
+    }
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -438,8 +460,8 @@ function registerShortcuts() {
 
   globalShortcut.register('CommandOrControl+Shift+Q', async () => {
     console.log('Quit hotkey pressed: stopping recording');
-    if (isQuitting) return;
-    isQuitting = true;
+    if (isUploading) return;
+    isUploading = true;
     try {
       createLoadingWindow();
       await stopOBSRecording();
@@ -453,6 +475,7 @@ function registerShortcuts() {
       noteWindow.close();
     }
     createMainWindow();
+    isUploading = false;
   });
 }
 
@@ -540,11 +563,13 @@ app.whenReady().then(async () => {
   });
   ipcMain.on('open-home', async () => {
   if (mainWindow && mainWindow.isVisible()) {
+    isReturningHome = true; 
     mainWindow.close();
     mainWindow = null;
   }
   const choice = await createHomeWindow();
   await handleHomeChoice(choice);
+  isReturningHome = false;
 });
   ipcMain.on('hide-username', () => {
     if (usernamePromptWindow && usernamePromptWindow.isVisible()) {
@@ -571,10 +596,7 @@ app.whenReady().then(async () => {
   });
 
   app.on('window-all-closed', () => {
-    if (!isQuitting) {
-      // Don't quit automatically — only quit when hotkey/explicit quit sets isQuitting
-      return;
-    }
+    console.log("All windows closed, quitting app");
 
     if (process.platform !== 'darwin') {
       app.quit();
