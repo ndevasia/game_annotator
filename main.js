@@ -9,7 +9,7 @@ const AWSManager = require('./backend/aws.js');
 const SessionMetadata = require('./backend/metadata.js')
 const sessionMetadata = new SessionMetadata();
 const { readUsername, writeUsername, submitUsername } = require('./username.js');
-// const os = require('./os.js')
+const os = require('./os.js')
 
 let awsManager = null;
 
