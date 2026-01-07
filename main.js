@@ -43,6 +43,8 @@ let obsListenerAttached = false;
 let isOBSConnected = false;
 let shortcutsRegistered = false;
 let isUploading = false;
+let isReturningHome = false;
+let userQuitFromHome = false;
 
 function createLoadingWindow() {
   if (loadingWindow) return;
@@ -134,7 +136,7 @@ function createMainWindow() {
 
   mainWindow.on('close', (e) => {
     // If the app is in the middle of uploading, don't show the box
-    if (isUploading || isReturningHome) return;
+    if (isUploading || isReturningHome || userQuitFromHome) return;
 
     // Prevent the window from closing immediately
     e.preventDefault();
@@ -149,6 +151,8 @@ function createMainWindow() {
     });
 
     if (choice === 0) {
+      console.log("User confirmed quit from main window");
+      userQuitFromHome = true;
       app.quit(); 
     }
   });
