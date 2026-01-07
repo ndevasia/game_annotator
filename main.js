@@ -13,6 +13,8 @@ const os = require('./os.js')
 
 let awsManager = null;
 
+var focusedWindow = null;
+
 // Instead of this, write it as an env variable and not a weird one off file
 var writeToAWS = true;
 
@@ -435,6 +437,7 @@ function registerShortcuts() {
   shortcutsRegistered = true;
 
   globalShortcut.register('CommandOrControl+Shift+N', () => {
+    focusedWindow = os.getFocusedWindow();
     if (noteWindow && !noteWindow.isVisible()) {
       noteWindow.setFocusable(true);
       noteWindow.setIgnoreMouseEvents(false);
@@ -549,6 +552,9 @@ app.whenReady().then(async () => {
       noteWindow.setIgnoreMouseEvents(true, { forward: true });
       noteWindow.hide();
       noteWindow.setFocusable(false);
+      if (focusedWindow != null) {
+        os.setFocusedWindow(focusedWindow);
+      }
     }
   });
   ipcMain.on('hide-start', () => {
