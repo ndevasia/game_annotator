@@ -45,6 +45,7 @@ let shortcutsRegistered = false;
 let isUploading = false;
 let isReturningHome = false;
 let userQuitFromHome = false;
+let isStarting = false;
 
 function createLoadingWindow() {
   if (loadingWindow) return;
@@ -109,6 +110,7 @@ function createUsernamePrompt() {
 
     ipcMain.once('username-submitted', async (event, username) => {
       sessionMetadata.setUsername(username);
+      writeUsername(username);
       promptWindow.close();
       resolve();
     });
@@ -525,11 +527,13 @@ async function handleHomeChoice(choice) {
 
 app.whenReady().then(async () => {
   console.log("A: App starting");
+  isStarting = true;
   if (!sessionMetadata.getUsername()) {
     await createUsernamePrompt();
   }
   awsManager = new AWSManager(sessionMetadata.getUsername());
   await awsManager.init();
+  isStarting = false;
 
   // Blocking prompt at startup:
   const choice = await createHomeWindow();
@@ -606,8 +610,15 @@ app.whenReady().then(async () => {
   });
 
   app.on('window-all-closed', () => {
+    // If we are currently in the middle of the startup flow (switching windows)
+    
+    if (isStarting) {
+      console.log("Still starting up, skipping quit.");
+      return;
+    }
     console.log("All windows closed, quitting app");
 
+    // or if we are on macOS, don't quit the app.
     if (process.platform !== 'darwin') {
       app.quit();
     }
