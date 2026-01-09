@@ -406,6 +406,10 @@
         hour12: true, month: 'numeric', day: 'numeric', year: '2-digit'
       };
       heading.textContent = `${session.title} – ${date.toLocaleTimeString(undefined, options)}`;
+      // Highlight sessions that use a local video fallback for easier discovery
+      if (session.videoUrl && session.videoUrl.startsWith('file://')) {
+        heading.style.color = '#FFD166';
+      }
       // Delete Session button
       const deleteSessionBtn = document.createElement('button');
       deleteSessionBtn.textContent = "Delete Session";
@@ -437,9 +441,16 @@
       deleteSessionBtn.onclick = async () => {
         if (!confirm("Are you sure you want to delete this entire session (video, metadata, and annotations)?")) return;
         try {
-          await client.deleteSession(session.videoUrl);
+          // If the session video is local (file://), use metadataUrl to identify S3 keys for deletion
+          const deleteUrl = (session.videoUrl && session.videoUrl.startsWith('file://')) ? session.metadataUrl : session.videoUrl;
+          if (!deleteUrl) {
+            alert('Cannot determine S3 keys for deletion');
+            return;
+          }
+
+          await client.deleteSession(deleteUrl);
           sessionDiv.remove();
-          console.log(`✅ Deleted session ${session.videoUrl}`);
+          console.log(`✅ Deleted session ${deleteUrl}`);
         } catch (err) {
           console.error("Failed to delete session:", err);
           alert("Error deleting session.");
@@ -447,12 +458,25 @@
       };
       heading.appendChild(deleteSessionBtn);
 
-      const video = document.createElement('video');
-      video.controls = true;
-      video.src = session.videoUrl;
+      let video = null;
+      if (session.videoUrl) {
+        video = document.createElement('video');
+        video.controls = true;
+        // session.videoUrl can be a signed http URL or a file:// URL
+        video.src = session.videoUrl;
+      } else {
+        const noVideo = document.createElement('div');
+        noVideo.style.padding = '12px';
+        noVideo.style.background = 'rgba(255,255,255,0.04)';
+        noVideo.style.border = '1px dashed rgba(255,0,255,0.15)';
+        noVideo.style.maxWidth = '700px';
+        noVideo.style.marginBottom = '1em';
+        noVideo.textContent = 'No video file available on S3 or locally.';
+        sessionDiv.appendChild(noVideo);
+      }
 
       const annotationDiv = document.createElement('div');
-      annotationDiv.innerHTML = `<em>Loading annotations...</em>`;
+      annotationDiv.innerHTML = `<em>Loading annotations...</em>`; 
 
       fetch(session.annotationUrl)
         .then(res => res.json())
@@ -469,7 +493,14 @@
             const note = document.createElement('div');
             note.className = 'annotation';
             note.innerHTML = `<strong>${timeStr}</strong>: ${a.note}`;
-            note.onclick = () => { video.currentTime = offset; video.play(); };
+            note.onclick = () => {
+              if (video) {
+                video.currentTime = offset;
+                video.play();
+              } else {
+                alert('No video available for this session.');
+              }
+            }; 
 
             // Back to Home button logic
             const backBtn = document.getElementById('back-home');
