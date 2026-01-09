@@ -129,6 +129,10 @@ function createMainWindow() {
   });
 
   mainWindow.loadFile('index.html');
+  // Forward renderer console messages to main process terminal
+  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    console.log(`[renderer:${level}] ${message} (${sourceId}:${line})`);
+  });
   // mainWindow.webContents.openDevTools();
   mainWindow.webContents.on('did-finish-load', () => {
     // Send sessionMetadata object or whatever data you want
