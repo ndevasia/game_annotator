@@ -1,6 +1,10 @@
 const AWS = require('aws-sdk');
 require('dotenv').config({ path: __dirname + '/.env' }); // __dirname resolves to backend/
 const SessionMetadata = require('./metadata.js')
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const { pathToFileURL } = require('url');
 
 class AWSManager {
   constructor(username) {
@@ -143,19 +147,10 @@ class AWSManager {
       const annotationMap = new Map(annotations.map(a => [getBaseName(a.key), a.key]));
       const metadataMap = new Map(metadataFiles.map(m => [getBaseName(m.key), m.key]));
 
-      // 3️⃣ Handle orphaned annotations
-      // for (const [base, annotationKey] of annotationMap.entries()) {
-      //   if (!videoMap.has(base) || !metadataMap.has(base)) {
-      //     console.log(`🗑️ Deleting orphaned annotation: ${annotationKey}`);
-      //     await this.s3.deleteObject({ Bucket: this.bucket, Key: annotationKey }).promise();
-      //     annotationMap.delete(base);
-      //   }
-      // }
+      // 3️⃣ Use metadata as the canonical list of sessions (we can fallback to local videos)
+      const validBases = [...metadataMap.keys()];
 
-      // 4️⃣ Combine all bases that have at least video + metadata
-      const validBases = [...videoMap.keys()].filter(base => metadataMap.has(base));
-
-      // 5️⃣ Sort valid bases by metadata timestamp descending
+      // 4️⃣ Sort valid bases by metadata timestamp descending
       const parseTimestampFromFilename = (base) => {
         const [datePart, timePart] = base.split(' ');
         const [year, month, day] = datePart.split('-').map(Number);
@@ -164,14 +159,54 @@ class AWSManager {
       };
       validBases.sort((a, b) => parseTimestampFromFilename(b) - parseTimestampFromFilename(a));
 
-      // 6️⃣ Build sessions
+      // 5️⃣ Build sessions
       const debugTable = [];
       for (const base of validBases) {
         try {
           const metadataBuffer = await this.getFileFromS3(metadataMap.get(base));
           const metadataObj = JSON.parse(metadataBuffer.toString('utf8'));
 
-          const videoUrl = await this._safeGetSignedUrl(videoMap.get(base));
+          let videoUrl = null;
+
+          // Try S3 video key first
+          if (videoMap.has(base)) {
+            videoUrl = await this._safeGetSignedUrl(videoMap.get(base));
+            if (!videoUrl) {
+              console.warn(`Signed URL generation failed for S3 video key ${videoMap.get(base)}; will try local fallback`);
+            }
+          }
+
+          // Fallback: search local OBS save path for closest mtime to videoStartTimestamp
+          let usedLocalFallback = false;
+          if (!videoUrl) {
+            usedLocalFallback = true;
+            console.log(`No S3 video found for ${base}, attempting local video fallback`);
+            // Parse the base filename timestamp first and prefer it when metadata timestamp is missing or clearly different
+            const parsedBaseTs = await this.parseTimestampFromFilename(base);
+            console.log(`Parsed base timestamp: ${parsedBaseTs} (${new Date(parsedBaseTs).toLocaleString()})`);
+
+            if (!metadataObj.videoStartTimestamp || Math.abs((metadataObj.videoStartTimestamp || 0) - parsedBaseTs) > 5 * 60 * 1000 || Math.abs((metadataObj.videoStartTimestamp || 0) - parsedBaseTs) > 5 * 60 * 1000) {
+              console.log(`[loadSessionsFromS3] overriding metadata.videoStartTimestamp (${metadataObj.videoStartTimestamp}) with parsed base timestamp ${parsedBaseTs}`);
+              metadataObj.videoStartTimestamp = parsedBaseTs;
+            }
+
+            console.log(`Using target timestamp for local search: ${metadataObj.videoStartTimestamp} (${new Date(metadataObj.videoStartTimestamp).toLocaleString()})`);
+            const targetTs = metadataObj.videoStartTimestamp;
+            // only accept local matches within ±5 minutes
+            const FIVE_MIN_MS = 5 * 60 * 1000;
+            const local = await this.findLocalVideoClosest(targetTs, FIVE_MIN_MS);
+            if (local) {
+              console.log(`Using local video fallback for ${base}: ${local}`);
+              videoUrl = local; // should be a file:// URL
+            }
+          }
+
+          // If we attempted local fallback but got nothing, skip this session entirely
+          if (usedLocalFallback && !videoUrl) {
+            console.log(`Skipping session for ${base} - attempted local fallback but all videos out of range of session`);
+            continue;
+          }
+
           const metadataUrl = await this._safeGetSignedUrl(metadataMap.get(base));
 
           let annotationUrl = null;
@@ -179,15 +214,34 @@ class AWSManager {
             annotationUrl = await this._safeGetSignedUrl(annotationMap.get(base));
           }
 
-          // Skip if mandatory signed URLs failed
-          if (!videoUrl || !metadataUrl) {
-            console.warn(`Skipping session for ${base} due to signed URL error`);
+          // Skip if mandatory metadata signed URL failed
+          if (!metadataUrl) {
+            console.warn(`Skipping session for ${base} because metadata signed URL failed`);
             continue;
+          }
+
+          // Skip entirely if no video URL (either S3 or local) could be found
+          if (!videoUrl) {
+            console.warn(`Skipping session for ${base} - no video URL available (no S3 and no matching local video)`);
+            continue;
+          }
+
+          // // If still no videoUrl, include session (will show 'No video available' in UI)
+          // // If we used a local fallback, prefer the parsed base timestamp as the video's start time
+          let sessionVideoStart = metadataObj.videoStartTimestamp || 0;
+          if (videoUrl && String(videoUrl).startsWith('file://')) {
+            try {
+              const parsed = await this.parseTimestampFromFilename(base);
+              sessionVideoStart = parsed || sessionVideoStart;
+              console.log(`[loadSessionsFromS3] overriding videoStartTimestamp for ${base} with parsed base timestamp: ${sessionVideoStart} (${new Date(sessionVideoStart).toISOString()})`);
+            } catch (e) {
+              console.warn('[loadSessionsFromS3] failed to parse base timestamp for', base, e && e.message);
+            }
           }
 
           sessions.push({
             title: metadataObj.title || `Session`,
-            videoStartTimestamp: metadataObj.videoStartTimestamp || 0,
+            videoStartTimestamp: sessionVideoStart,
             videoUrl,
             annotationUrl, // null if no annotation
             metadataUrl,
@@ -198,6 +252,7 @@ class AWSManager {
             hasVideo: !!videoMap.get(base),
             hasMetadata: !!metadataMap.get(base),
             hasAnnotation: !!annotationMap.get(base),
+            usedLocal: !!videoUrl && !videoMap.get(base),
           });
 
         } catch (err) {
@@ -217,6 +272,7 @@ class AWSManager {
 
 // Helper to work with both AWS SDK v2 & v3
 async _safeGetSignedUrl(key) {
+  if (!key) return null;
   try {
     if (typeof this.s3.getSignedUrl === 'function') {
       // AWS SDK v2
@@ -240,6 +296,103 @@ async _safeGetSignedUrl(key) {
   }
 }
 
+
+  async findLocalVideoClosest(targetTimestamp, windowMs = 5 * 60 * 1000) {
+    console.log("Searching local video files closest to timestamp:", new Date(targetTimestamp).toLocaleString(), `(±${windowMs}ms window)`);
+    // Search common OBS/video save locations (allow override via OBS_VIDEO_PATH env)
+    const searchDirs = [];
+    if (process.env.OBS_VIDEO_PATH) searchDirs.push(process.env.OBS_VIDEO_PATH);
+    // Common places
+    searchDirs.push(path.join(os.homedir(), 'Videos'));
+    searchDirs.push(path.join(os.homedir(), 'Movies'));
+    searchDirs.push(path.join(process.cwd(), 'videos'));
+
+    const exts = ['.mkv', '.mp4', '.flv', '.mov'];
+    const candidates = [];
+
+    for (const dir of searchDirs) {
+      try {
+        const files = await fs.promises.readdir(dir);
+        console.log(`[findLocalVideoClosest] scanning dir: ${dir} (${files.length} entries)`);
+        for (const f of files) {
+          const full = path.join(dir, f);
+          try {
+            const stat = await fs.promises.stat(full);
+            if (!stat.isFile()) continue;
+            const ext = path.extname(f).toLowerCase();
+            if (!exts.includes(ext)) continue;
+            const mtime = stat.mtime.getTime();
+            // Prefer parsing the timestamp from the filename (YYYY-MM-DD HH-MM-SS) when available
+            let fileTs = null;
+            let parsedFromFilename = false;
+            try {
+              fileTs = await this.parseTimestampFromFilename(f);
+              parsedFromFilename = true;
+            } catch (e) {
+              fileTs = mtime;
+              console.warn('[findLocalVideoClosest] parseTimestampFromFilename failed for', f, '-', e && e.message);
+            }
+
+            const diff = Math.abs(fileTs - targetTimestamp);
+            candidates.push({ file: full, fileTsLocal: new Date(fileTs).toLocaleString(), fileTsMs: fileTs, mtimeLocal: new Date(mtime).toLocaleString(), mtimeMs: mtime, diff, parsedFromFilename });
+          } catch (e) {
+            console.warn('[findLocalVideoClosest] file stat failed:', full, e && e.message);
+            continue;
+          }
+        }
+      } catch (e) {
+        console.warn('[findLocalVideoClosest] failed to read dir:', dir, e && e.message);
+        continue; // ignore dirs that don't exist
+      }
+    }
+
+    console.log('[findLocalVideoClosest] candidates count:', candidates.length);
+    if (candidates.length === 0) {
+      console.log('[findLocalVideoClosest] NO LOCAL VIDEOS FOUND');
+      return null;
+    }
+
+    console.log(`[findLocalVideoClosest] evaluating window ±${windowMs}ms around target ${targetTimestamp} (${new Date(targetTimestamp).toLocaleString()})`);
+
+    // Show a concise summary of each candidate so we can debug why none fall within the window
+    console.log('[findLocalVideoClosest] candidate summary (index, file, fileTsMs, fileTsLocal, mtimeMs, mtimeLocal, diff, parsedFromFilename):');
+    candidates.forEach((c, i) => {
+      console.log(`  ${i}: ${c.file} | fileTsMs=${c.fileTsMs} (${c.fileTsLocal}) | mtimeMs=${c.mtimeMs} (${c.mtimeLocal}) | diff=${c.diff} | absDelta=${Math.abs(c.fileTsMs - targetTimestamp)} | parsedFromFilename=${c.parsedFromFilename}`);
+    });
+
+    // Accept videos within ±windowMs of the target timestamp (use parsed filename timestamp)
+    const withinWindow = candidates
+      .map(c => ({ ...c, absDelta: Math.abs(c.fileTsMs - targetTimestamp) }))
+      .filter(c => c.absDelta <= windowMs)
+      .sort((a, b) => a.absDelta - b.absDelta);
+
+    if (withinWindow.length > 0) {
+      const best = withinWindow[0];
+      const target = targetTimestamp;
+      const fileTs = best.fileTsMs;
+      const delta = fileTs - target;
+      console.log('[findLocalVideoClosest] best within-window candidate object:', best);
+      console.log(`[findLocalVideoClosest] numeric check -> target: ${target}, fileTs: ${fileTs}, deltaMs: ${delta}, recorded diff: ${best.diff}, parsedFromFilename: ${best.parsedFromFilename}`);
+      console.log('[findLocalVideoClosest] selected (within ±window):', pathToFileURL(best.file).href, `(deltaMs=${delta})`);
+      return pathToFileURL(best.file).href;
+    }
+
+    // No video within ±window; provide the closest candidate info for debugging
+    const sortedByDelta = candidates.slice().sort((a, b) => Math.abs(a.fileTsMs - targetTimestamp) - Math.abs(b.fileTsMs - targetTimestamp));
+    const closest = sortedByDelta[0];
+    if (closest) {
+      console.warn('[findLocalVideoClosest] no local video within ±window of target; closest candidate info:');
+      console.warn(`  file: ${closest.file}`);
+      console.warn(`  fileTsMs: ${closest.fileTsMs} (${closest.fileTsLocal})`);
+      console.warn(`  mtimeMs: ${closest.mtimeMs} (${closest.mtimeLocal})`);
+      console.warn(`  absDelta: ${Math.abs(closest.fileTsMs - targetTimestamp)} ms`);
+      console.warn(`  parsedFromFilename: ${closest.parsedFromFilename}`);
+    } else {
+      console.warn('[findLocalVideoClosest] no local video within ±window of target; no candidates available to show');
+    }
+    return null;
+    return null;
+  }
 
   async saveMetadata(sessionMetadata) {
     const username = sessionMetadata.getUsername();
@@ -279,12 +432,33 @@ async _safeGetSignedUrl(key) {
   }
 
   async parseTimestampFromFilename(filename) {
-    // filename like "2025-08-19 22-13-32.json"
-    const base = filename.replace(/\.(json|mkv)$/, '');
-    const [datePart, timePart] = base.split(' ');
-    const [year, month, day] = datePart.split('-').map(Number);
-    const [hour, minute, second] = timePart.split('-').map(Number);
-    return new Date(year, month - 1, day, hour, minute, second).getTime();
+    // Accept filenames like "2025-08-19 22-13-32.json" or "2026-01-12 15-38-28.mp4"
+    // Use path functions to strip any extension robustly and validate the parsed date.
+    const ext = path.extname(filename);
+    const base = path.basename(filename, ext);
+
+    const parts = base.split(' ');
+    if (parts.length < 2) {
+      throw new Error(`Filename "${filename}" not in expected 'YYYY-MM-DD HH-MM-SS' format`);
+    }
+
+    const [datePart, timePart] = parts;
+    const datePieces = datePart.split('-').map(Number);
+    const timePieces = timePart.split('-').map(Number);
+
+    if (datePieces.length !== 3 || timePieces.length !== 3) {
+      throw new Error(`Filename "${filename}" timestamp parts malformed`);
+    }
+
+    const [year, month, day] = datePieces;
+    const [hour, minute, second] = timePieces;
+
+    const ts = new Date(year, month - 1, day, hour, minute, second).getTime();
+    if (Number.isNaN(ts)) {
+      throw new Error(`Parsed date is invalid for filename "${filename}"`);
+    }
+
+    return ts;
   }
 
   async deleteSession(videoUrl) {
