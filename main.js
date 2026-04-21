@@ -46,6 +46,7 @@ let ffmpegExecutablePath = null;
 let ffmpegReady = false;
 let appConfig = {
   recordAllDisplays: true,
+  selectedDisplayId: null,
 };
 let shortcutsRegistered = false;
 let isUploading = false;
@@ -457,8 +458,11 @@ function getDisplayCaptureConfig() {
     };
   }
 
+  const configuredDisplay = appConfig.selectedDisplayId !== null
+    ? screen.getAllDisplays().find((display) => String(display.id) === String(appConfig.selectedDisplayId))
+    : null;
   const cursorPoint = screen.getCursorScreenPoint();
-  const activeDisplay = screen.getDisplayNearestPoint(cursorPoint);
+  const activeDisplay = configuredDisplay || screen.getDisplayNearestPoint(cursorPoint) || screen.getPrimaryDisplay();
   const displayBounds = process.platform === 'win32'
     ? screen.dipToScreenRect(null, activeDisplay.bounds)
     : activeDisplay.bounds;
@@ -765,6 +769,23 @@ async function saveSettings(partialSettings) {
   await writeConfig(appConfig);
 }
 
+function getAvailableDisplays() {
+  const displays = screen.getAllDisplays();
+  const fallbackDisplays = displays.length ? displays : [screen.getPrimaryDisplay()].filter(Boolean);
+
+  return fallbackDisplays.map((display, index) => ({
+    id: String(display.id),
+    label: display.label || `Display ${index + 1}`,
+    bounds: {
+      x: display.bounds.x,
+      y: display.bounds.y,
+      width: display.bounds.width,
+      height: display.bounds.height,
+    },
+    internal: Boolean(display.internal),
+  }));
+}
+
 async function handleHomeChoice(choice) {
   if (choice === 'start') {
     // If mainWindow is open (user came from past sessions), close it:
@@ -878,6 +899,9 @@ app.whenReady().then(async () => {
     });
   ipcMain.handle('get-settings', () => {
     return appConfig;
+  });
+  ipcMain.handle('get-available-displays', () => {
+    return getAvailableDisplays();
   });
   ipcMain.handle('save-settings', async (event, settings) => {
     await saveSettings(settings);
