@@ -47,12 +47,196 @@ let ffmpegReady = false;
 let appConfig = {
   recordAllDisplays: true,
   selectedDisplayId: null,
+  localOnlyStorage: false,
 };
 let shortcutsRegistered = false;
 let isUploading = false;
 let isReturningHome = false;
 let userQuitFromHome = false;
 let isStarting = false;
+
+function getLocalSessionRoot() {
+  return path.join(app.getPath('userData'), 'local_sessions');
+}
+
+function getLocalSessionPaths(username, fileTimestamp) {
+  const userRoot = path.join(getLocalSessionRoot(), username);
+  return {
+    userRoot,
+    videosDir: path.join(userRoot, 'videos'),
+    metadataDir: path.join(userRoot, 'metadata'),
+    annotationsDir: path.join(userRoot, 'annotations'),
+    videoPath: path.join(userRoot, 'videos', `${fileTimestamp}.mkv`),
+    metadataPath: path.join(userRoot, 'metadata', `${fileTimestamp}.json`),
+    annotationsPath: path.join(userRoot, 'annotations', `${fileTimestamp}.json`),
+  };
+}
+
+async function ensureLocalSessionDirs(username) {
+  const paths = getLocalSessionPaths(username, sessionMetadata.getFileTimestamp());
+  await Promise.all([
+    fs.promises.mkdir(paths.videosDir, { recursive: true }),
+    fs.promises.mkdir(paths.metadataDir, { recursive: true }),
+    fs.promises.mkdir(paths.annotationsDir, { recursive: true }),
+  ]);
+}
+
+function shouldUploadToS3() {
+  return !appConfig.localOnlyStorage;
+}
+
+async function saveMetadataLocally() {
+  const username = sessionMetadata.getUsername();
+  const fileTimestamp = sessionMetadata.getFileTimestamp();
+  if (!username || !fileTimestamp) return;
+
+  await ensureLocalSessionDirs(username);
+  const paths = getLocalSessionPaths(username, fileTimestamp);
+  await fs.promises.writeFile(
+    paths.metadataPath,
+    JSON.stringify(sessionMetadata.toJSON(), null, 2),
+    'utf8'
+  );
+}
+
+async function saveAnnotationLocally(annotation) {
+  const username = sessionMetadata.getUsername();
+  const fileTimestamp = sessionMetadata.getFileTimestamp();
+  if (!username || !fileTimestamp) return;
+
+  await ensureLocalSessionDirs(username);
+  const paths = getLocalSessionPaths(username, fileTimestamp);
+  let annotations = [];
+
+  try {
+    const existing = await fs.promises.readFile(paths.annotationsPath, 'utf8');
+    annotations = JSON.parse(existing);
+    if (!Array.isArray(annotations)) {
+      annotations = [];
+    }
+  } catch {
+    annotations = [];
+  }
+
+  annotations.push(annotation);
+  await fs.promises.writeFile(paths.annotationsPath, JSON.stringify(annotations, null, 2), 'utf8');
+}
+
+async function ensureLocalAnnotationsFile() {
+  const username = sessionMetadata.getUsername();
+  const fileTimestamp = sessionMetadata.getFileTimestamp();
+  if (!username || !fileTimestamp) return;
+
+  await ensureLocalSessionDirs(username);
+  const paths = getLocalSessionPaths(username, fileTimestamp);
+  if (!fs.existsSync(paths.annotationsPath)) {
+    await fs.promises.writeFile(paths.annotationsPath, JSON.stringify([], null, 2), 'utf8');
+  }
+}
+
+async function cleanupLocalSession(username, fileTimestamp) {
+  const paths = getLocalSessionPaths(username, fileTimestamp);
+  const targets = [paths.videoPath, paths.metadataPath, paths.annotationsPath];
+  await Promise.all(targets.map(async (target) => {
+    if (fs.existsSync(target)) {
+      await fs.promises.unlink(target);
+    }
+  }));
+}
+
+function parseSessionTimestamp(base) {
+  const [datePart, timePart] = base.split(' ');
+  if (!datePart || !timePart) return 0;
+  const [year, month, day] = datePart.split('-').map(Number);
+  const [hour, minute, second, millisecond] = timePart.split('-').map(Number);
+  const parsed = new Date(
+    year,
+    (month || 1) - 1,
+    day || 1,
+    hour || 0,
+    minute || 0,
+    second || 0,
+    millisecond || 0
+  ).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function toFileUrl(filePath) {
+  return `file:///${filePath.replace(/\\/g, '/')}`;
+}
+
+async function listLocalSessions(username) {
+  if (!username) return [];
+
+  const userRoot = path.join(getLocalSessionRoot(), username);
+  const videosDir = path.join(userRoot, 'videos');
+  const metadataDir = path.join(userRoot, 'metadata');
+  const annotationsDir = path.join(userRoot, 'annotations');
+
+  if (!fs.existsSync(videosDir) || !fs.existsSync(metadataDir)) {
+    return [];
+  }
+
+  const videoFiles = (await fs.promises.readdir(videosDir)).filter((name) => name.endsWith('.mkv'));
+  const sessions = [];
+
+  for (const fileName of videoFiles) {
+    const fileTimestamp = fileName.replace(/\.mkv$/, '');
+    const metadataPath = path.join(metadataDir, `${fileTimestamp}.json`);
+    if (!fs.existsSync(metadataPath)) continue;
+
+    let metadataObj;
+    try {
+      metadataObj = JSON.parse(await fs.promises.readFile(metadataPath, 'utf8'));
+    } catch {
+      continue;
+    }
+
+    sessions.push({
+      title: metadataObj.title || 'Session',
+      videoStartTimestamp: metadataObj.videoStartTimestamp || parseSessionTimestamp(fileTimestamp),
+      videoUrl: toFileUrl(path.join(videosDir, fileName)),
+      annotationPath: path.join(annotationsDir, `${fileTimestamp}.json`),
+      isLocalOnly: true,
+      username,
+      fileTimestamp,
+    });
+  }
+
+  return sessions;
+}
+
+async function uploadLocalSession(username, fileTimestamp) {
+  const paths = getLocalSessionPaths(username, fileTimestamp);
+  if (!fs.existsSync(paths.videoPath) || !fs.existsSync(paths.metadataPath)) {
+    throw new Error('Local session files are incomplete.');
+  }
+
+  const [videoBuffer, metadataBuffer] = await Promise.all([
+    fs.promises.readFile(paths.videoPath),
+    fs.promises.readFile(paths.metadataPath),
+  ]);
+
+  let annotationsBuffer;
+  if (fs.existsSync(paths.annotationsPath)) {
+    annotationsBuffer = await fs.promises.readFile(paths.annotationsPath);
+  } else {
+    annotationsBuffer = Buffer.from(JSON.stringify([], null, 2));
+  }
+
+  await awsManager.uploadFile(videoBuffer, username, fileTimestamp, 'videos');
+  await awsManager.uploadFile(metadataBuffer, username, fileTimestamp, 'metadata');
+  await awsManager.uploadFile(annotationsBuffer, username, fileTimestamp, 'annotations');
+
+  await cleanupLocalSession(username, fileTimestamp);
+}
+
+async function deleteLocalSession(username, fileTimestamp) {
+  if (!username || !fileTimestamp) {
+    throw new Error('Username and fileTimestamp are required to delete local sessions.');
+  }
+  await cleanupLocalSession(username, fileTimestamp);
+}
 
 function createLoadingWindow() {
   if (loadingWindow) return;
@@ -661,18 +845,43 @@ async function stopFFMpegRecording(timeoutMs = 600000) {
       return;
     }
 
-    console.log(`Uploading video: ${recordingPath}`);
-    const fileBuffer = fs.readFileSync(recordingPath);
-    await awsManager.uploadFile(
-      fileBuffer,
-      sessionMetadata.getUsername(),
-      sessionMetadata.getFileTimestamp(),
-      'videos'
-    );
-    console.log('Video uploaded to S3.');
+    const username = sessionMetadata.getUsername();
+    const fileTimestamp = sessionMetadata.getFileTimestamp();
+    await ensureLocalSessionDirs(username);
+    await saveMetadataLocally();
+    await ensureLocalAnnotationsFile();
 
-    await fs.promises.unlink(recordingPath);
-    console.log(`Deleted local file: ${recordingPath}`);
+    const localPaths = getLocalSessionPaths(username, fileTimestamp);
+    await fs.promises.rename(recordingPath, localPaths.videoPath).catch(async (renameErr) => {
+      if (renameErr && renameErr.code === 'EXDEV') {
+        await fs.promises.copyFile(recordingPath, localPaths.videoPath);
+        await fs.promises.unlink(recordingPath);
+        return;
+      }
+      throw renameErr;
+    });
+
+    if (!shouldUploadToS3()) {
+      console.log(`Stored session locally only: ${localPaths.videoPath}`);
+      return;
+    }
+
+    try {
+      const [videoBuffer, metadataBuffer, annotationsBuffer] = await Promise.all([
+        fs.promises.readFile(localPaths.videoPath),
+        fs.promises.readFile(localPaths.metadataPath),
+        fs.promises.readFile(localPaths.annotationsPath),
+      ]);
+
+      await awsManager.uploadFile(videoBuffer, username, fileTimestamp, 'videos');
+      await awsManager.uploadFile(metadataBuffer, username, fileTimestamp, 'metadata');
+      await awsManager.uploadFile(annotationsBuffer, username, fileTimestamp, 'annotations');
+
+      await cleanupLocalSession(username, fileTimestamp);
+      console.log('Session uploaded to S3 and local copies removed.');
+    } catch (uploadError) {
+      console.warn('S3 upload failed. Keeping session locally for later upload.', uploadError);
+    }
   } catch (error) {
     console.error('Failed during FFMPEG stop/upload process:', error);
     throw error;
@@ -716,10 +925,9 @@ function registerShortcuts() {
       if (emojiWindow) {
         emojiWindow.webContents.send('show-emoji', emoji);
       }
-      // if awsManager exists, save (guard)
-      if (awsManager) {
-        awsManager.saveAnnotationToS3(sessionMetadata, { note: emoji, timestamp: Date.now() });
-      }
+      saveAnnotationLocally({ note: emoji, timestamp: Date.now() }).catch((err) => {
+        console.error('Error saving emoji annotation locally:', err);
+      });
     });
   }
 
@@ -756,6 +964,11 @@ async function startSession() {
     });
     return;
   }
+
+  // Reset per-session metadata so files are never reused across recordings.
+  sessionMetadata.setTitle('');
+  sessionMetadata.setVideoStartTimestamp(null);
+  sessionMetadata.setFileTimestamp(sessionMetadata.getFormattedTimestamp());
 
   registerShortcuts();
   createStartWindow();
@@ -838,9 +1051,9 @@ app.whenReady().then(async () => {
 
   ipcMain.on('save-annotation', (event, annotation) => {
     try {
-      if (writeToAWS) {
-        awsManager.saveAnnotationToS3(sessionMetadata, annotation);
-      }
+      saveAnnotationLocally(annotation).catch((err) => {
+        console.error('Error saving annotation locally:', err);
+      });
     } catch (err) {
       console.error('Error saving annotation:', err);
     }
@@ -907,6 +1120,20 @@ app.whenReady().then(async () => {
     await saveSettings(settings);
     return appConfig;
   });
+  ipcMain.handle('get-local-sessions', async (event, username) => {
+    return listLocalSessions(username);
+  });
+  ipcMain.handle('upload-local-session', async (event, { username, fileTimestamp }) => {
+    if (!username || !fileTimestamp) {
+      throw new Error('Username and fileTimestamp are required to upload local sessions.');
+    }
+    await uploadLocalSession(username, fileTimestamp);
+    return { success: true };
+  });
+  ipcMain.handle('delete-local-session', async (event, { username, fileTimestamp }) => {
+    await deleteLocalSession(username, fileTimestamp);
+    return { success: true };
+  });
   ipcMain.on('close-app', () => {
     console.log("Closing home");
     homeWindow.close();
@@ -915,7 +1142,9 @@ app.whenReady().then(async () => {
   });
   function maybeWriteSessionMetadata() {
     if (sessionMetadata.getTitle() && sessionMetadata.getVideoStartTimestamp()) {
-      awsManager.saveMetadata(sessionMetadata)
+      saveMetadataLocally().catch((err) => {
+        console.error('Error saving metadata locally:', err);
+      });
     }
   }
 

@@ -13,7 +13,6 @@
       min-height: 100vh;
     }
 
-    /* Section headers under the main neon heading */
     h2, h3 {
       font-family: 'Share Tech Mono', monospace;
       font-size: 1.4em;
@@ -55,7 +54,7 @@
       cursor: pointer;
       transition: background 0.2s, transform 0.2s;
       line-height: 1.4;
-      justify-content: space-between; /* text on left, button on far right */
+      justify-content: space-between;
     }
 
     .annotation:hover {
@@ -63,26 +62,10 @@
       transform: scale(1.02);
     }
 
-    .annotation .emoji {
-      margin-right: 8px;
-      font-size: 1.2em;
-    }
-
-    .annotation .time {
-      font-weight: bold;
-      margin-right: 6px;
-      color: #00ffff;
-    }
-
-    .annotation .text {
-      color: #ddd;
-    }
-
     .annotation-content {
-      flex: 1; /* takes all available space */
+      flex: 1;
     }
 
-    /* Neon spinner */
     .loader {
       border: 6px solid rgba(0, 255, 255, 0.1);
       border-top: 6px solid #00ffff;
@@ -90,9 +73,8 @@
       width: 60px;
       height: 60px;
       animation: spin 1s linear infinite;
-
       margin: 40px auto;
-      display: none; /* hidden by default */
+      display: none;
       box-shadow: 0 0 12px #00ffff, 0 0 24px #00ffff;
     }
 
@@ -101,9 +83,8 @@
       to { transform: rotate(360deg); }
     }
 
-
     .annotation button {
-      display: none;              /* hidden by default */
+      display: none;
       margin-left: 12px;
       background: transparent;
       border: none;
@@ -116,26 +97,23 @@
 
     .annotation:hover button {
       display: inline;
-      opacity: 1;                 /* smooth fade in */
+      opacity: 1;
     }
-    /* Neon Heading (same as before) */
+
     .neon-heading {
       font-family: 'Orbitron', sans-serif;
       font-size: 2.5em;
       font-weight: bold;
       text-transform: uppercase;
       text-align: center;
-
       background: linear-gradient(90deg, #ff00ff, #00ffff);
+      background-clip: text;
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
-
-      /* controlled glow */
-      text-shadow: 
+      text-shadow:
         0 0 5px rgba(255,0,255,0.7),
         0 0 12px rgba(0,255,255,0.5);
-
-      -webkit-text-stroke: 1px rgba(0,0,0,0.6); /* crisp outline */
+      -webkit-text-stroke: 1px rgba(0,0,0,0.6);
       animation: neonPulse 1.8s ease-in-out infinite alternate;
     }
 
@@ -158,161 +136,22 @@
       }
     }
 
-
+    .local-session-title {
+      color: #ffe066;
+      text-shadow: 0 0 6px rgba(255, 224, 102, 0.6);
+    }
   </style>
 </head>
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>Video + Annotations</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      padding: 20px;
-      margin: 0;
-      background: linear-gradient(180deg, #0d0221, #1a1a40, #2e0249);
-      color: #eee;
-    }
-
-    /* Section headers under the main neon heading */
-    h2, h3 {
-      font-family: 'Share Tech Mono', monospace;
-      font-size: 1.4em;
-      font-weight: normal;
-      color: #00ffff;
-      text-shadow: 0 0 5px #00ffff, 0 0 10px #0088ff;
-      margin-bottom: 10px;
-    }
-
-    .session {
-      margin-bottom: 40px;
-    }
-
-    video {
-      width: 100%;
-      max-width: 700px;
-      margin-bottom: 1em;
-      border: 2px solid #00ffff;
-      border-radius: 6px;
-      box-shadow: 0 0 20px rgba(0,255,255,0.3);
-    }
-
-    .annotations {
-      margin-top: 10px;
-      max-width: 700px;
-      background: rgba(20, 20, 40, 0.8);
-      border: 1px solid rgba(255, 0, 255, 0.3);
-      border-radius: 8px;
-      padding: 10px;
-      box-shadow: 0 0 15px rgba(255,0,255,0.2);
-    }
-
-    .annotation {
-      padding: 6px 12px;
-      margin-bottom: 6px;
-      border-left: 4px solid #ff00ff;
-      background: linear-gradient(90deg, rgba(255,0,255,0.08), rgba(0,255,255,0.08));
-      border-radius: 4px;
-      cursor: pointer;
-      transition: background 0.2s, transform 0.2s;
-      line-height: 1.4;
-      justify-content: space-between; /* text on left, button on far right */
-    }
-
-    .annotation:hover {
-      background: linear-gradient(90deg, rgba(255,0,255,0.15), rgba(0,255,255,0.15));
-      transform: scale(1.02);
-    }
-
-    .annotation .emoji {
-      margin-right: 8px;
-      font-size: 1.2em;
-    }
-
-    .annotation .time {
-      font-weight: bold;
-      margin-right: 6px;
-      color: #00ffff;
-    }
-
-    .annotation .text {
-      color: #ddd;
-    }
-
-    .annotation-content {
-      flex: 1; /* takes all available space */
-    }
-
-    .annotation button {
-      display: none;              /* hidden by default */
-      margin-left: 12px;
-      background: transparent;
-      border: none;
-      color: #ff5555;
-      font-size: 1.1em;
-      cursor: pointer;
-      transition: opacity 0.2s, transform 0.2s, color 0.2s;
-      opacity: 0;
-    }
-
-    .annotation:hover button {
-      display: inline;
-      opacity: 1;                 /* smooth fade in */
-    }
-    /* Neon Heading (same as before) */
-    .neon-heading {
-      font-family: 'Orbitron', sans-serif;
-      font-size: 2.5em;
-      font-weight: bold;
-      text-transform: uppercase;
-      text-align: center;
-
-      background: linear-gradient(90deg, #ff00ff, #00ffff);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-
-      /* controlled glow */
-      text-shadow: 
-        0 0 5px rgba(255,0,255,0.7),
-        0 0 12px rgba(0,255,255,0.5);
-
-      -webkit-text-stroke: 1px rgba(0,0,0,0.6); /* crisp outline */
-      animation: neonPulse 1.8s ease-in-out infinite alternate;
-    }
-
-    @keyframes neonPulse {
-      from {
-        text-shadow:
-          0 0 5px #ff00ff,
-          0 0 10px #ff00ff,
-          0 0 20px #00ffff,
-          0 0 30px #00ffff,
-          0 0 40px #ff00ff;
-      }
-      to {
-        text-shadow:
-          0 0 10px #ff00ff,
-          0 0 20px #ff00ff,
-          0 0 30px #00ffff,
-          0 0 40px #00ffff,
-          0 0 50px #ff00ff;
-      }
-    }
-
-
-  </style>
-</head>
-  <body>
+<body>
   <h1 class="neon-heading">Annotated Sessions</h1>
   <div id="loader" class="loader"></div>
   <div id="sessions"></div>
+
   <button id="load-more" style="display:none; margin: 20px auto; padding: 10px 20px;
     background: #00ffff; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">
     Load More Sessions
   </button>
 
-  <!-- Back to Home Screen button -->
   <button id="back-home" style="
     margin: 20px auto;
     display: block;
@@ -331,71 +170,160 @@
 
   <script>
     const fs = require('fs');
-    const path = require('path');
     const { ipcRenderer } = require('electron');
     const AWSManager = require('./backend/aws.js');
 
     const sessionContainer = document.getElementById('sessions');
     const loadMoreBtn = document.getElementById('load-more');
+    const loader = document.getElementById('loader');
+    const backBtn = document.getElementById('back-home');
 
     let client;
     let allSessions = [];
     let visibleCount = 0;
+    let activeUsername = null;
     const PAGE_SIZE = 5;
 
-    ipcRenderer.on('session-data', async (event, username) => {
-      const loader = document.getElementById("loader");
-      loader.style.display = "block";   // ⬅ show loading animation
+    backBtn.addEventListener('mouseenter', () => {
+      backBtn.style.background = 'rgba(255,0,255,0.2)';
+      backBtn.style.color = '#00ffff';
+      backBtn.style.textShadow = '0 0 8px #00ffff, 0 0 16px #00ffff';
+    });
 
-      sessionContainer.innerHTML = "";  // clear
-      loadMoreBtn.style.display = "none";
+    backBtn.addEventListener('mouseleave', () => {
+      backBtn.style.background = 'rgba(40,0,60,0.6)';
+      backBtn.style.color = '#ff00ff';
+      backBtn.style.textShadow = '0 0 5px #ff00ff, 0 0 10px #ff00ff, 0 0 15px #ff00ff';
+    });
+
+    backBtn.addEventListener('click', () => {
+      ipcRenderer.send('open-home');
+    });
+
+    ipcRenderer.on('session-data', async (event, username) => {
+      sessionContainer.innerHTML = '';
+      loadMoreBtn.style.display = 'none';
+      loader.style.display = 'block';
 
       if (!username) {
-        loader.style.display = "none";
+        loader.style.display = 'none';
         sessionContainer.innerHTML = '<p>No username found in session data.</p>';
         return;
       }
 
+      activeUsername = username;
       client = new AWSManager(username);
-      await client.init();
 
       try {
-        allSessions = await client.loadSessionsFromS3(username);
+        await client.init();
+        const [s3Sessions, localSessions] = await Promise.all([
+          client.loadSessionsFromS3(username),
+          ipcRenderer.invoke('get-local-sessions', username),
+        ]);
 
-        loader.style.display = "none";   // ⬅ hide loader when done
+        const normalizedS3Sessions = s3Sessions.map((session) => ({
+          ...session,
+          source: 's3',
+          isLocalOnly: false,
+        }));
+
+        const normalizedLocalSessions = localSessions.map((session) => ({
+          ...session,
+          source: 'local',
+          isLocalOnly: true,
+        }));
+
+        // Sort by fileTimestamp descending (newest first).
+        // Format: "YYYY-MM-DD HH-MM-SS-ms" sorts correctly lexicographically.
+        allSessions = [...normalizedLocalSessions, ...normalizedS3Sessions].sort((a, b) => {
+          const fileA = a.fileTimestamp || '';
+          const fileB = b.fileTimestamp || '';
+          return fileB.localeCompare(fileA);
+        });
+
+        loader.style.display = 'none';
 
         if (allSessions.length === 0) {
-          sessionContainer.innerHTML = '<p>No sessions found in S3.</p>';
+          sessionContainer.innerHTML = '<p>No sessions found.</p>';
           return;
         }
 
         visibleCount = 0;
-        renderNextPage();
-
+        await renderNextPage();
       } catch (err) {
-        console.error('Error loading sessions from S3:', err);
-        loader.style.display = "none";
+        console.error('Error loading sessions:', err);
+        loader.style.display = 'none';
         sessionContainer.innerHTML = '<p>Error loading sessions.</p>';
       }
     });
 
-
-    function renderNextPage() {
+    async function renderNextPage() {
       const next = allSessions.slice(visibleCount, visibleCount + PAGE_SIZE);
-      next.forEach(createSession);
+      for (const session of next) {
+        await createSession(session);
+      }
       visibleCount += next.length;
 
-      // toggle button visibility
-      if (visibleCount < allSessions.length) {
-        loadMoreBtn.style.display = 'block';
-      } else {
-        loadMoreBtn.style.display = 'none';
-      }
+      loadMoreBtn.style.display = visibleCount < allSessions.length ? 'block' : 'none';
     }
 
     loadMoreBtn.addEventListener('click', renderNextPage);
 
-    function createSession(session) {
+    function styleActionButton(button, primaryColor) {
+      button.style.marginLeft = '12px';
+      button.style.padding = '6px 14px';
+      button.style.border = `1px solid ${primaryColor}`;
+      button.style.borderRadius = '6px';
+      button.style.background = 'rgba(40,0,60,0.6)';
+      button.style.color = primaryColor;
+      button.style.fontFamily = "'Share Tech Mono', monospace";
+      button.style.cursor = 'pointer';
+      button.style.textShadow = `0 0 5px ${primaryColor}, 0 0 10px ${primaryColor}`;
+      button.style.transition = 'all 0.2s ease-in-out';
+
+      button.onmouseenter = () => {
+        button.style.background = 'rgba(255,0,255,0.2)';
+        button.style.color = '#00ffff';
+        button.style.textShadow = '0 0 8px #00ffff, 0 0 16px #00ffff';
+      };
+
+      button.onmouseleave = () => {
+        button.style.background = 'rgba(40,0,60,0.6)';
+        button.style.color = primaryColor;
+        button.style.textShadow = `0 0 5px ${primaryColor}, 0 0 10px ${primaryColor}`;
+      };
+    }
+
+    function loadAnnotations(session) {
+      if (session.source === 'local') {
+        if (!session.annotationPath || !fs.existsSync(session.annotationPath)) return [];
+        try {
+          const raw = fs.readFileSync(session.annotationPath, 'utf8');
+          const parsed = JSON.parse(raw);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      }
+
+      if (!session.annotationUrl) return [];
+      return fetch(session.annotationUrl)
+        .then((res) => res.json())
+        .catch(() => []);
+    }
+
+    function deleteLocalAnnotation(session, targetTimestamp) {
+      if (!session.annotationPath || !fs.existsSync(session.annotationPath)) {
+        throw new Error('No local annotation file found.');
+      }
+
+      const raw = fs.readFileSync(session.annotationPath, 'utf8');
+      const annotations = JSON.parse(raw);
+      const filtered = annotations.filter((a) => a.timestamp !== targetTimestamp);
+      fs.writeFileSync(session.annotationPath, JSON.stringify(filtered, null, 2), 'utf8');
+    }
+
+    async function createSession(session) {
       const sessionDiv = document.createElement('div');
       sessionDiv.className = 'session';
 
@@ -405,117 +333,120 @@
         hour: '2-digit', minute: '2-digit', second: '2-digit',
         hour12: true, month: 'numeric', day: 'numeric', year: '2-digit'
       };
-      heading.textContent = `${session.title} – ${date.toLocaleTimeString(undefined, options)}`;
-      // Delete Session button
+      const headingLabel = document.createElement('span');
+      headingLabel.textContent = `${session.title} - ${date.toLocaleTimeString(undefined, options)}`;
+      if (session.isLocalOnly) {
+        headingLabel.className = 'local-session-title';
+      }
+      heading.appendChild(headingLabel);
+
       const deleteSessionBtn = document.createElement('button');
-      deleteSessionBtn.textContent = "Delete Session";
-
-      // neon/cyberpunk styling
-      deleteSessionBtn.style.marginLeft = "15px";
-      deleteSessionBtn.style.padding = "6px 14px";
-      deleteSessionBtn.style.border = "1px solid #ff00ff";
-      deleteSessionBtn.style.borderRadius = "6px";
-      deleteSessionBtn.style.background = "rgba(40,0,60,0.6)";
-      deleteSessionBtn.style.color = "#ff00ff";
-      deleteSessionBtn.style.fontFamily = "'Share Tech Mono', monospace";
-      deleteSessionBtn.style.cursor = "pointer";
-      deleteSessionBtn.style.textShadow = "0 0 5px #ff00ff, 0 0 10px #ff00ff, 0 0 15px #ff00ff";
-      deleteSessionBtn.style.transition = "all 0.2s ease-in-out";
-
-      // hover effect
-      deleteSessionBtn.onmouseenter = () => {
-        deleteSessionBtn.style.background = "rgba(255,0,255,0.2)";
-        deleteSessionBtn.style.color = "#00ffff";
-        deleteSessionBtn.style.textShadow = "0 0 8px #00ffff, 0 0 16px #00ffff";
-      };
-      deleteSessionBtn.onmouseleave = () => {
-        deleteSessionBtn.style.background = "rgba(40,0,60,0.6)";
-        deleteSessionBtn.style.color = "#ff00ff";
-        deleteSessionBtn.style.textShadow = "0 0 5px #ff00ff, 0 0 10px #ff00ff, 0 0 15px #ff00ff";
-      };
+      deleteSessionBtn.textContent = 'Delete Session';
+      styleActionButton(deleteSessionBtn, '#ff00ff');
 
       deleteSessionBtn.onclick = async () => {
-        if (!confirm("Are you sure you want to delete this entire session (video, metadata, and annotations)?")) return;
+        if (!confirm('Are you sure you want to delete this entire session (video, metadata, and annotations)?')) return;
         try {
-          await client.deleteSession(session.videoUrl);
+          if (session.source === 'local') {
+            await ipcRenderer.invoke('delete-local-session', {
+              username: session.username || activeUsername,
+              fileTimestamp: session.fileTimestamp,
+            });
+          } else {
+            await client.deleteSession(session.videoUrl);
+          }
           sessionDiv.remove();
-          console.log(`✅ Deleted session ${session.videoUrl}`);
         } catch (err) {
-          console.error("Failed to delete session:", err);
-          alert("Error deleting session.");
+          console.error('Failed to delete session:', err);
+          alert('Error deleting session.');
         }
       };
+
       heading.appendChild(deleteSessionBtn);
+
+      if (session.source === 'local') {
+        const uploadBtn = document.createElement('button');
+        uploadBtn.textContent = 'Upload To S3';
+        styleActionButton(uploadBtn, '#ffe066');
+
+        uploadBtn.onclick = async () => {
+          uploadBtn.disabled = true;
+          uploadBtn.textContent = 'Uploading...';
+          try {
+            await ipcRenderer.invoke('upload-local-session', {
+              username: session.username || activeUsername,
+              fileTimestamp: session.fileTimestamp,
+            });
+            sessionDiv.remove();
+          } catch (err) {
+            console.error('Failed to upload local session:', err);
+            alert('Error uploading local session to S3.');
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = 'Upload To S3';
+          }
+        };
+
+        heading.appendChild(uploadBtn);
+      }
 
       const video = document.createElement('video');
       video.controls = true;
       video.src = session.videoUrl;
 
       const annotationDiv = document.createElement('div');
-      annotationDiv.innerHTML = `<em>Loading annotations...</em>`;
+      annotationDiv.className = 'annotations';
+      annotationDiv.innerHTML = '<em>Loading annotations...</em>';
 
-      fetch(session.annotationUrl)
-        .then(res => res.json())
-        .then(annotations => {
-          annotationDiv.innerHTML = '';
-          const videoStart = session.videoStartTimestamp;
+      const loadedAnnotations = await Promise.resolve(loadAnnotations(session));
 
-          annotations.forEach(a => {
-            const offset = (a.timestamp - videoStart) / 1000;
-            const minutes = Math.floor(offset / 60);
-            const seconds = Math.floor(offset % 60);
-            const timeStr = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+      if (!loadedAnnotations.length) {
+        annotationDiv.innerHTML = '<strong>No annotations detected</strong>';
+      } else {
+        annotationDiv.innerHTML = '';
+        const videoStart = session.videoStartTimestamp;
 
-            const note = document.createElement('div');
-            note.className = 'annotation';
-            note.innerHTML = `<strong>${timeStr}</strong>: ${a.note}`;
-            note.onclick = () => { video.currentTime = offset; video.play(); };
+        loadedAnnotations.forEach((a) => {
+          const offset = (a.timestamp - videoStart) / 1000;
+          const safeOffset = Number.isFinite(offset) && offset >= 0 ? offset : 0;
+          const minutes = Math.floor(safeOffset / 60);
+          const seconds = Math.floor(safeOffset % 60);
+          const timeStr = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 
-            // Back to Home button logic
-            const backBtn = document.getElementById('back-home');
-            backBtn.addEventListener('mouseenter', () => {
-              backBtn.style.background = "rgba(255,0,255,0.2)";
-              backBtn.style.color = "#00ffff";
-              backBtn.style.textShadow = "0 0 8px #00ffff, 0 0 16px #00ffff";
-            });
-            backBtn.addEventListener('mouseleave', () => {
-              backBtn.style.background = "rgba(40,0,60,0.6)";
-              backBtn.style.color = "#ff00ff";
-              backBtn.style.textShadow = "0 0 5px #ff00ff, 0 0 10px #ff00ff, 0 0 15px #ff00ff";
-            });
-            backBtn.addEventListener('click', () => {
-              ipcRenderer.send('open-home');
-            });
+          const note = document.createElement('div');
+          note.className = 'annotation';
+          note.innerHTML = `<strong>${timeStr}</strong>: ${a.note}`;
+          note.onclick = () => {
+            video.currentTime = safeOffset;
+            video.play();
+          };
 
-            const deleteBtn = document.createElement('button');
-            deleteBtn.innerHTML = '✕';
-            deleteBtn.onclick = async (e) => {
-              e.stopPropagation();
-              try {
+          const deleteBtn = document.createElement('button');
+          deleteBtn.innerHTML = 'x';
+          deleteBtn.onclick = async (e) => {
+            e.stopPropagation();
+            try {
+              if (session.source === 'local') {
+                deleteLocalAnnotation(session, a.timestamp);
+              } else {
                 await client.deleteAnnotation(session.annotationUrl, a.timestamp);
-                note.remove();
-              } catch (err) {
-                console.error("Failed to delete annotation:", err);
-                alert(`Error deleting annotation: ${err}`);
               }
-            };
-            note.appendChild(deleteBtn);
-            annotationDiv.appendChild(note);
-          });
-        })
-        .catch(err => {
-          annotationDiv.innerHTML = `<strong>No annotations detected</strong>`;
-          console.error('Error fetching annotations:', err);
+              note.remove();
+            } catch (err) {
+              console.error('Failed to delete annotation:', err);
+              alert(`Error deleting annotation: ${err}`);
+            }
+          };
+
+          note.appendChild(deleteBtn);
+          annotationDiv.appendChild(note);
         });
+      }
 
       sessionDiv.appendChild(heading);
       sessionDiv.appendChild(video);
       sessionDiv.appendChild(annotationDiv);
       sessionContainer.appendChild(sessionDiv);
     }
-
   </script>
 </body>
-
-</html>
 </html>
