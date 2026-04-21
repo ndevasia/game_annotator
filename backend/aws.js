@@ -159,8 +159,8 @@ class AWSManager {
       const parseTimestampFromFilename = (base) => {
         const [datePart, timePart] = base.split(' ');
         const [year, month, day] = datePart.split('-').map(Number);
-        const [hour, minute, second] = timePart.split('-').map(Number);
-        return new Date(year, month - 1, day, hour, minute, second).getTime();
+        const [hour, minute, second, millisecond] = timePart.split('-').map(Number);
+        return new Date(year, month - 1, day, hour, minute, second, millisecond || 0).getTime();
       };
       validBases.sort((a, b) => parseTimestampFromFilename(b) - parseTimestampFromFilename(a));
 
@@ -187,10 +187,11 @@ class AWSManager {
 
           sessions.push({
             title: metadataObj.title || `Session`,
-            videoStartTimestamp: metadataObj.videoStartTimestamp || 0,
+            videoStartTimestamp: metadataObj.videoStartTimestamp || parseTimestampFromFilename(base),
             videoUrl,
             annotationUrl, // null if no annotation
             metadataUrl,
+            fileTimestamp: base,
           });
 
           debugTable.push({
@@ -283,8 +284,8 @@ async _safeGetSignedUrl(key) {
     const base = filename.replace(/\.(json|mkv)$/, '');
     const [datePart, timePart] = base.split(' ');
     const [year, month, day] = datePart.split('-').map(Number);
-    const [hour, minute, second] = timePart.split('-').map(Number);
-    return new Date(year, month - 1, day, hour, minute, second).getTime();
+    const [hour, minute, second, millisecond] = timePart.split('-').map(Number);
+    return new Date(year, month - 1, day, hour, minute, second, millisecond || 0).getTime();
   }
 
   async deleteSession(videoUrl) {

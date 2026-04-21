@@ -33,7 +33,8 @@ class SessionMetadata {
     const hh = pad(now.getHours());
     const mm = pad(now.getMinutes());
     const ss = pad(now.getSeconds());
-    return `${yyyy}-${MM}-${dd} ${hh}-${mm}-${ss}`;
+    const ms = String(now.getMilliseconds()).padStart(3, '0');
+    return `${yyyy}-${MM}-${dd} ${hh}-${mm}-${ss}-${ms}`;
 }
   // Setters
   setTitle(title) {
