@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Settings</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .settings-panel {
+      width: min(420px, 90vw);
+      padding: 24px;
+      border: 2px solid rgba(0, 255, 255, 0.55);
+      border-radius: 16px;
+      background: rgba(7, 10, 28, 0.9);
+      box-shadow: 0 0 24px rgba(0, 255, 255, 0.3);
+      text-shadow: none;
+    }
+
+    .settings-panel h2 {
+      margin-top: 0;
+      color: #00ffff;
+    }
+
+    .settings-row {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      margin: 20px 0;
+      color: #ffffff;
+    }
+
+    .settings-row input {
+      margin-top: 4px;
+      transform: scale(1.15);
+    }
+
+    .settings-copy {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .settings-copy small {
+      color: #9fe9ff;
+      line-height: 1.45;
+    }
+
+    .settings-actions {
+      display: flex;
+      gap: 12px;
+      justify-content: flex-end;
+      margin-top: 24px;
+    }
+  </style>
+</head>
+<body>
+  <div class="settings-panel">
+    <h2>Settings</h2>
+    <div class="settings-row">
+      <input id="record-all-displays" type="checkbox">
+      <label for="record-all-displays" class="settings-copy">
+        <strong>Record both screens</strong>
+        <small>When enabled, FFMPEG records the full desktop area across displays. When disabled, it records only the current primary display.</small>
+      </label>
+    </div>
+    <div class="settings-actions">
+      <button type="button" class="button-small" onclick="closeSettings()">Cancel</button>
+      <button type="button" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+    const recordAllDisplaysCheckbox = document.getElementById('record-all-displays');
+
+    async function loadSettings() {
+      const settings = await ipcRenderer.invoke('get-settings');
+      recordAllDisplaysCheckbox.checked = settings.recordAllDisplays !== false;
+    }
+
+    async function saveSettings() {
+      await ipcRenderer.invoke('save-settings', {
+        recordAllDisplays: recordAllDisplaysCheckbox.checked,
+      });
+      ipcRenderer.send('close-settings');
+    }
+
+    function closeSettings() {
+      ipcRenderer.send('close-settings');
+    }
+
+    loadSettings();
+  </script>
+</body>
+</html>
