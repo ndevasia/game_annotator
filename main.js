@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, dialog, screen } = require('electron');
 const fs = require('fs');
 const { spawnSync } = require('child_process');
 const { spawnTracked, killAllChildren } = require("./backend/processManager.js");
@@ -6,6 +6,7 @@ const isDebug = process.argv.includes('--debug');
 const path = require('path');
 const AWSManager = require('./backend/aws.js');
 const SessionMetadata = require('./backend/metadata.js')
+const { readConfig, writeConfig } = require('./config.js');
 const sessionMetadata = new SessionMetadata();
 const { readUsername, writeUsername, submitUsername } = require('./username.js');
 const os = require('./os.js')
@@ -37,11 +38,15 @@ let homeWindow = null;
 let usernamePromptWindow = null;
 let emojiWindow = null;
 let loadingWindow = null;
+let settingsWindow = null;
 
 let ffmpegProcess = null;
 let currentRecordingPath = null;
 let ffmpegExecutablePath = null;
 let ffmpegReady = false;
+let appConfig = {
+  recordAllDisplays: true,
+};
 let shortcutsRegistered = false;
 let isUploading = false;
 let isReturningHome = false;
@@ -323,6 +328,36 @@ function createHomeWindow() {
   });
 }
 
+function createSettingsWindow() {
+  if (settingsWindow) {
+    settingsWindow.focus();
+    return;
+  }
+
+  settingsWindow = new BrowserWindow({
+    width: 460,
+    height: 320,
+    modal: true,
+    parent: homeWindow || null,
+    resizable: false,
+    show: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    }
+  });
+
+  settingsWindow.loadFile('settings.html');
+
+  settingsWindow.once('ready-to-show', () => {
+    settingsWindow.show();
+  });
+
+  settingsWindow.on('closed', () => {
+    settingsWindow = null;
+  });
+}
+
 
 function getFFMpegPlatform() {
   if (process.platform === 'darwin') return 'mac';
@@ -412,14 +447,53 @@ function parseMacCaptureDevice(ffmpegPath) {
   return `${match[1]}:none`;
 }
 
+function getDisplayCaptureConfig() {
+  if (appConfig.recordAllDisplays) {
+    return {
+      input: 'desktop',
+      size: null,
+      offsetX: null,
+      offsetY: null,
+    };
+  }
+
+  const cursorPoint = screen.getCursorScreenPoint();
+  const activeDisplay = screen.getDisplayNearestPoint(cursorPoint);
+  const displayBounds = process.platform === 'win32'
+    ? screen.dipToScreenRect(null, activeDisplay.bounds)
+    : activeDisplay.bounds;
+  const { x, y, width, height } = displayBounds;
+
+  console.log(`Recording single display: ${activeDisplay.label || activeDisplay.id} at ${width}x${height} (${x}, ${y})`);
+
+  return {
+    input: 'desktop',
+    size: `${width}x${height}`,
+    offsetX: String(x),
+    offsetY: String(y),
+  };
+}
+
 function getFFMpegRecordingArgs(ffmpegPath, outputPath) {
   const args = ['-hide_banner', '-y'];
 
   if (process.platform === 'win32') {
+    const captureConfig = getDisplayCaptureConfig();
     args.push(
       '-f', 'gdigrab',
       '-framerate', '30',
-      '-i', 'desktop'
+    );
+
+    if (captureConfig.offsetX !== null && captureConfig.offsetY !== null && captureConfig.size) {
+      args.push(
+        '-offset_x', captureConfig.offsetX,
+        '-offset_y', captureConfig.offsetY,
+        '-video_size', captureConfig.size
+      );
+    }
+
+    args.push(
+      '-i', captureConfig.input
     );
   } else if (process.platform === 'darwin') {
     const captureDevice = parseMacCaptureDevice(ffmpegPath);
@@ -686,6 +760,11 @@ async function startSession() {
   createEmojiWindow();
 }
 
+async function saveSettings(partialSettings) {
+  appConfig = { ...appConfig, ...partialSettings };
+  await writeConfig(appConfig);
+}
+
 async function handleHomeChoice(choice) {
   if (choice === 'start') {
     // If mainWindow is open (user came from past sessions), close it:
@@ -704,6 +783,7 @@ async function handleHomeChoice(choice) {
 app.whenReady().then(async () => {
   console.log("A: App starting");
   isStarting = true;
+  appConfig = { ...appConfig, ...(await readConfig()) };
   if (!sessionMetadata.getUsername()) {
     await createUsernamePrompt();
   }
@@ -770,6 +850,14 @@ app.whenReady().then(async () => {
   ipcMain.on('open-past-sessions', () => {
     createMainWindow();
   });
+  ipcMain.on('open-settings', () => {
+    createSettingsWindow();
+  });
+  ipcMain.on('close-settings', () => {
+    if (settingsWindow) {
+      settingsWindow.close();
+    }
+  });
   ipcMain.on('open-home', async () => {
   if (mainWindow && mainWindow.isVisible()) {
     isReturningHome = true; 
@@ -788,6 +876,13 @@ app.whenReady().then(async () => {
   ipcMain.handle('get-video-start', () => {
     return sessionMetadata.getVideoStartTimestamp();
     });
+  ipcMain.handle('get-settings', () => {
+    return appConfig;
+  });
+  ipcMain.handle('save-settings', async (event, settings) => {
+    await saveSettings(settings);
+    return appConfig;
+  });
   ipcMain.on('close-app', () => {
     console.log("Closing home");
     homeWindow.close();
