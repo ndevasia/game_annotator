@@ -17,6 +17,7 @@
   <h2>What do you want to do today?</h2>
   <button class="button-large" onclick="startNewSession()">Start a new session</button>
   <button class="button-large" onclick="viewPastSessions()">View past sessions</button>
+  <button class="button-large" onclick="openSettings()">Settings</button>
   <button class="button-large" onclick="closeApp()">Close app</button>
 
   <script>
@@ -28,6 +29,10 @@
 
     function viewPastSessions() {
       ipcRenderer.send('open-past-sessions'); // main will load index.html
+    }
+
+    function openSettings() {
+      ipcRenderer.send('open-settings');
     }
 
     function closeApp() {
