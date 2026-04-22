@@ -140,6 +140,106 @@
       color: #ffe066;
       text-shadow: 0 0 6px rgba(255, 224, 102, 0.6);
     }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: 10px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.7rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+    }
+
+    .status-badge.live {
+      color: #ff7b7b;
+      border-color: rgba(255, 80, 80, 0.7);
+      box-shadow: 0 0 10px rgba(255, 80, 80, 0.35);
+    }
+
+    .status-badge.local {
+      color: #ffe066;
+      border-color: rgba(255, 224, 102, 0.7);
+      box-shadow: 0 0 8px rgba(255, 224, 102, 0.3);
+    }
+
+    .status-badge.saved {
+      color: #7dffcf;
+      border-color: rgba(125, 255, 207, 0.7);
+      box-shadow: 0 0 8px rgba(125, 255, 207, 0.25);
+    }
+
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ff4d4d;
+      box-shadow: 0 0 10px #ff4d4d;
+      animation: livePulse 1.2s ease-in-out infinite;
+    }
+
+    @keyframes livePulse {
+      0%, 100% { opacity: 0.45; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.15); }
+    }
+
+    .video-placeholder {
+      width: 100%;
+      max-width: 700px;
+      margin-bottom: 1em;
+      border: 2px dashed rgba(0, 255, 255, 0.7);
+      border-radius: 10px;
+      background: linear-gradient(135deg, rgba(0, 255, 255, 0.08), rgba(255, 0, 255, 0.08));
+      box-shadow: inset 0 0 20px rgba(0, 255, 255, 0.12);
+      padding: 16px;
+    }
+
+    .video-placeholder h3 {
+      margin: 0 0 8px 0;
+      font-size: 1.1rem;
+    }
+
+    .video-placeholder p {
+      margin: 0;
+      font-size: 0.9rem;
+      color: #cde6f5;
+    }
+
+    .session-footer {
+      max-width: 700px;
+      margin-top: 8px;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.78rem;
+      color: #7dffcf;
+      opacity: 0.9;
+    }
+
+    .annotation.new-note {
+      animation: revealNote 0.35s ease-out;
+    }
+
+    @keyframes revealNote {
+      from {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .annotation.no-video {
+      cursor: default;
+    }
+
+    .annotation.no-video:hover {
+      transform: none;
+    }
   </style>
 </head>
 <body>
@@ -182,7 +282,10 @@
     let allSessions = [];
     let visibleCount = 0;
     let activeUsername = null;
+    let liveRefreshTimer = null;
+    const liveSessionViews = new Map();
     const PAGE_SIZE = 5;
+    const LIVE_REFRESH_INTERVAL_MS = 3000;
 
     backBtn.addEventListener('mouseenter', () => {
       backBtn.style.background = 'rgba(255,0,255,0.2)';
@@ -204,6 +307,11 @@
       sessionContainer.innerHTML = '';
       loadMoreBtn.style.display = 'none';
       loader.style.display = 'block';
+      if (liveRefreshTimer) {
+        clearInterval(liveRefreshTimer);
+        liveRefreshTimer = null;
+      }
+      liveSessionViews.clear();
 
       if (!username) {
         loader.style.display = 'none';
@@ -265,6 +373,7 @@
       visibleCount += next.length;
 
       loadMoreBtn.style.display = visibleCount < allSessions.length ? 'block' : 'none';
+      ensureLiveRefreshTimer();
     }
 
     loadMoreBtn.addEventListener('click', renderNextPage);
@@ -323,6 +432,136 @@
       fs.writeFileSync(session.annotationPath, JSON.stringify(filtered, null, 2), 'utf8');
     }
 
+    function getSessionStatus(session) {
+      if (session.source === 'local' && session.isInProgress) {
+        return { label: 'Live', className: 'live', showDot: true };
+      }
+      if (session.source === 'local') {
+        return { label: 'Local', className: 'local', showDot: false };
+      }
+      return { label: 'Saved', className: 'saved', showDot: false };
+    }
+
+    function createStatusBadge(session) {
+      const state = getSessionStatus(session);
+      const badge = document.createElement('span');
+      badge.className = `status-badge ${state.className}`;
+      if (state.showDot) {
+        const dot = document.createElement('span');
+        dot.className = 'live-dot';
+        badge.appendChild(dot);
+      }
+      const text = document.createElement('span');
+      text.textContent = state.label;
+      badge.appendChild(text);
+      return badge;
+    }
+
+    function createVideoPlaceholder(isInProgress) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'video-placeholder';
+      wrapper.innerHTML = isInProgress
+        ? '<h3>Session in progress</h3><p>Video will be available after this session ends. Notes will continue to update live.</p>'
+        : '<h3>Video unavailable</h3><p>This local session currently has notes, but no playable video file.</p>';
+      return wrapper;
+    }
+
+    function formatOffset(timestamp, videoStart) {
+      const offset = (timestamp - videoStart) / 1000;
+      const safeOffset = Number.isFinite(offset) && offset >= 0 ? offset : 0;
+      const minutes = Math.floor(safeOffset / 60);
+      const seconds = Math.floor(safeOffset % 60);
+      return {
+        safeOffset,
+        timeLabel: `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`,
+      };
+    }
+
+    function renderAnnotations(session, annotationDiv, loadedAnnotations, mediaEl, knownTimestamps, highlightNew = false) {
+      if (!loadedAnnotations.length) {
+        annotationDiv.innerHTML = session.isInProgress
+          ? '<strong>No notes yet in this live session</strong>'
+          : '<strong>No annotations were added</strong>';
+        return;
+      }
+
+      annotationDiv.innerHTML = '';
+      const sorted = [...loadedAnnotations].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+      const videoStart = session.videoStartTimestamp;
+
+      sorted.forEach((a) => {
+        const { safeOffset, timeLabel } = formatOffset(a.timestamp, videoStart);
+        const note = document.createElement('div');
+        const canSeek = Boolean(mediaEl && session.hasVideo !== false);
+        note.className = `annotation ${canSeek ? '' : 'no-video'}`.trim();
+        if (highlightNew && !knownTimestamps.has(a.timestamp)) {
+          note.classList.add('new-note');
+        }
+        note.innerHTML = `<strong>${timeLabel}</strong>: ${a.note}`;
+
+        if (canSeek) {
+          note.onclick = () => {
+            mediaEl.currentTime = safeOffset;
+            mediaEl.play();
+          };
+        }
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.innerHTML = 'x';
+        deleteBtn.onclick = async (e) => {
+          e.stopPropagation();
+          try {
+            if (session.source === 'local') {
+              deleteLocalAnnotation(session, a.timestamp);
+            } else {
+              await client.deleteAnnotation(session.annotationUrl, a.timestamp);
+            }
+            note.remove();
+            knownTimestamps.delete(a.timestamp);
+          } catch (err) {
+            console.error('Failed to delete annotation:', err);
+            alert(`Error deleting annotation: ${err}`);
+          }
+        };
+
+        note.appendChild(deleteBtn);
+        annotationDiv.appendChild(note);
+        knownTimestamps.add(a.timestamp);
+      });
+    }
+
+    function updateLiveStatus(statusDiv, text) {
+      if (!statusDiv) return;
+      statusDiv.textContent = text;
+    }
+
+    function ensureLiveRefreshTimer() {
+      if (liveRefreshTimer || liveSessionViews.size === 0) return;
+      liveRefreshTimer = setInterval(refreshLiveSessions, LIVE_REFRESH_INTERVAL_MS);
+    }
+
+    async function refreshLiveSessions() {
+      if (liveSessionViews.size === 0) {
+        if (liveRefreshTimer) {
+          clearInterval(liveRefreshTimer);
+          liveRefreshTimer = null;
+        }
+        return;
+      }
+
+      for (const [key, view] of liveSessionViews.entries()) {
+        const { session, annotationDiv, statusDiv, mediaEl, knownTimestamps } = view;
+        try {
+          const latestAnnotations = await Promise.resolve(loadAnnotations(session));
+          renderAnnotations(session, annotationDiv, latestAnnotations, mediaEl, knownTimestamps, true);
+          updateLiveStatus(statusDiv, `Updated ${new Date().toLocaleTimeString()}`);
+        } catch (err) {
+          console.warn(`Failed to refresh notes for ${key}:`, err);
+          updateLiveStatus(statusDiv, 'Reconnecting...');
+        }
+      }
+    }
+
     async function createSession(session) {
       const sessionDiv = document.createElement('div');
       sessionDiv.className = 'session';
@@ -339,6 +578,7 @@
         headingLabel.className = 'local-session-title';
       }
       heading.appendChild(headingLabel);
+      heading.appendChild(createStatusBadge(session));
 
       const deleteSessionBtn = document.createElement('button');
       deleteSessionBtn.textContent = 'Delete Session';
@@ -362,9 +602,11 @@
         }
       };
 
-      heading.appendChild(deleteSessionBtn);
+      if (!(session.source === 'local' && session.isInProgress)) {
+        heading.appendChild(deleteSessionBtn);
+      }
 
-      if (session.source === 'local') {
+      if (session.source === 'local' && !session.isInProgress) {
         const uploadBtn = document.createElement('button');
         uploadBtn.textContent = 'Upload To S3';
         styleActionButton(uploadBtn, '#ffe066');
@@ -389,64 +631,54 @@
         heading.appendChild(uploadBtn);
       }
 
-      const video = document.createElement('video');
-      video.controls = true;
-      video.src = session.videoUrl;
+      const hasVideo = session.hasVideo !== false && Boolean(session.videoUrl);
+      let mediaEl = null;
+      if (hasVideo) {
+        mediaEl = document.createElement('video');
+        mediaEl.controls = true;
+        mediaEl.src = session.videoUrl;
+      } else {
+        mediaEl = createVideoPlaceholder(Boolean(session.isInProgress));
+      }
 
       const annotationDiv = document.createElement('div');
       annotationDiv.className = 'annotations';
       annotationDiv.innerHTML = '<em>Loading annotations...</em>';
+      const knownTimestamps = new Set();
 
       const loadedAnnotations = await Promise.resolve(loadAnnotations(session));
 
-      if (!loadedAnnotations.length) {
-        annotationDiv.innerHTML = '<strong>No annotations detected</strong>';
-      } else {
-        annotationDiv.innerHTML = '';
-        const videoStart = session.videoStartTimestamp;
+      renderAnnotations(session, annotationDiv, loadedAnnotations, hasVideo ? mediaEl : null, knownTimestamps, false);
 
-        loadedAnnotations.forEach((a) => {
-          const offset = (a.timestamp - videoStart) / 1000;
-          const safeOffset = Number.isFinite(offset) && offset >= 0 ? offset : 0;
-          const minutes = Math.floor(safeOffset / 60);
-          const seconds = Math.floor(safeOffset % 60);
-          const timeStr = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-
-          const note = document.createElement('div');
-          note.className = 'annotation';
-          note.innerHTML = `<strong>${timeStr}</strong>: ${a.note}`;
-          note.onclick = () => {
-            video.currentTime = safeOffset;
-            video.play();
-          };
-
-          const deleteBtn = document.createElement('button');
-          deleteBtn.innerHTML = 'x';
-          deleteBtn.onclick = async (e) => {
-            e.stopPropagation();
-            try {
-              if (session.source === 'local') {
-                deleteLocalAnnotation(session, a.timestamp);
-              } else {
-                await client.deleteAnnotation(session.annotationUrl, a.timestamp);
-              }
-              note.remove();
-            } catch (err) {
-              console.error('Failed to delete annotation:', err);
-              alert(`Error deleting annotation: ${err}`);
-            }
-          };
-
-          note.appendChild(deleteBtn);
-          annotationDiv.appendChild(note);
+      let footerDiv = null;
+      if (session.source === 'local' && session.isInProgress) {
+        footerDiv = document.createElement('div');
+        footerDiv.className = 'session-footer';
+        footerDiv.textContent = 'Waiting for live updates...';
+        liveSessionViews.set(session.fileTimestamp, {
+          session,
+          annotationDiv,
+          statusDiv: footerDiv,
+          mediaEl: hasVideo ? mediaEl : null,
+          knownTimestamps,
         });
       }
 
       sessionDiv.appendChild(heading);
-      sessionDiv.appendChild(video);
+      sessionDiv.appendChild(mediaEl);
       sessionDiv.appendChild(annotationDiv);
+      if (footerDiv) {
+        sessionDiv.appendChild(footerDiv);
+      }
       sessionContainer.appendChild(sessionDiv);
     }
+
+    window.addEventListener('beforeunload', () => {
+      if (liveRefreshTimer) {
+        clearInterval(liveRefreshTimer);
+        liveRefreshTimer = null;
+      }
+    });
   </script>
 </body>
 </html>

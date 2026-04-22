@@ -173,31 +173,58 @@ async function listLocalSessions(username) {
   const metadataDir = path.join(userRoot, 'metadata');
   const annotationsDir = path.join(userRoot, 'annotations');
 
-  if (!fs.existsSync(videosDir) || !fs.existsSync(metadataDir)) {
+  if (!fs.existsSync(videosDir) && !fs.existsSync(metadataDir) && !fs.existsSync(annotationsDir)) {
     return [];
   }
 
-  const videoFiles = (await fs.promises.readdir(videosDir)).filter((name) => name.endsWith('.mkv'));
+  const [videoFiles, metadataFiles, annotationFiles] = await Promise.all([
+    fs.existsSync(videosDir)
+      ? fs.promises.readdir(videosDir).then((items) => items.filter((name) => name.endsWith('.mkv')))
+      : Promise.resolve([]),
+    fs.existsSync(metadataDir)
+      ? fs.promises.readdir(metadataDir).then((items) => items.filter((name) => name.endsWith('.json')))
+      : Promise.resolve([]),
+    fs.existsSync(annotationsDir)
+      ? fs.promises.readdir(annotationsDir).then((items) => items.filter((name) => name.endsWith('.json')))
+      : Promise.resolve([]),
+  ]);
+
+  const sessionTimestamps = new Set();
+  videoFiles.forEach((name) => sessionTimestamps.add(name.replace(/\.mkv$/, '')));
+  metadataFiles.forEach((name) => sessionTimestamps.add(name.replace(/\.json$/, '')));
+  annotationFiles.forEach((name) => sessionTimestamps.add(name.replace(/\.json$/, '')));
+
   const sessions = [];
 
-  for (const fileName of videoFiles) {
-    const fileTimestamp = fileName.replace(/\.mkv$/, '');
+  for (const fileTimestamp of sessionTimestamps) {
     const metadataPath = path.join(metadataDir, `${fileTimestamp}.json`);
-    if (!fs.existsSync(metadataPath)) continue;
+    const annotationPath = path.join(annotationsDir, `${fileTimestamp}.json`);
+    const videoPath = path.join(videosDir, `${fileTimestamp}.mkv`);
 
-    let metadataObj;
-    try {
-      metadataObj = JSON.parse(await fs.promises.readFile(metadataPath, 'utf8'));
-    } catch {
-      continue;
+    const hasVideo = fs.existsSync(videoPath);
+    const hasMetadata = fs.existsSync(metadataPath);
+    const hasAnnotations = fs.existsSync(annotationPath);
+    if (!hasVideo && !hasMetadata && !hasAnnotations) continue;
+
+    let metadataObj = {};
+    if (hasMetadata) {
+      try {
+        metadataObj = JSON.parse(await fs.promises.readFile(metadataPath, 'utf8'));
+      } catch {
+        metadataObj = {};
+      }
     }
 
     sessions.push({
       title: metadataObj.title || 'Session',
       videoStartTimestamp: metadataObj.videoStartTimestamp || parseSessionTimestamp(fileTimestamp),
-      videoUrl: toFileUrl(path.join(videosDir, fileName)),
-      annotationPath: path.join(annotationsDir, `${fileTimestamp}.json`),
+      videoUrl: hasVideo ? toFileUrl(videoPath) : null,
+      annotationPath,
       isLocalOnly: true,
+      hasVideo,
+      hasMetadata,
+      hasAnnotations,
+      isInProgress: hasMetadata && !hasVideo,
       username,
       fileTimestamp,
     });
@@ -353,6 +380,21 @@ function createMainWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+}
+
+function closeAllIndexWindows() {
+  const windows = BrowserWindow.getAllWindows();
+  for (const win of windows) {
+    const currentUrl = win.webContents.getURL() || '';
+    if (currentUrl.endsWith('/index.html') || currentUrl.includes('/index.html?')) {
+      try {
+        win.destroy();
+      } catch (err) {
+        console.warn('Failed to close an index window:', err);
+      }
+    }
+  }
+  mainWindow = null;
 }
 
 function createEmojiWindow() {
@@ -920,6 +962,19 @@ function registerShortcuts() {
     }
   });
 
+  globalShortcut.register('CommandOrControl+Shift+O', () => {
+    if (!mainWindow) {
+      createMainWindow();
+      return;
+    }
+
+    mainWindow.show();
+    mainWindow.focus();
+    if (!mainWindow.webContents.isLoading()) {
+      mainWindow.webContents.send('session-data', sessionMetadata.getUsername());
+    }
+  });
+
   for (const [shortcut, emoji] of Object.entries(emojiReactions)) {
     globalShortcut.register(shortcut, () => {
       if (emojiWindow) {
@@ -946,6 +1001,7 @@ function registerShortcuts() {
     if (noteWindow) {
       noteWindow.close();
     }
+    closeAllIndexWindows();
     createMainWindow();
     isUploading = false;
   });
