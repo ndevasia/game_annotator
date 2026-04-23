@@ -18,15 +18,6 @@ var focusedWindow = null;
 // Instead of this, write it as an env variable and not a weird one off file
 var writeToAWS = true;
 
-const emojiReactions = {
-  'CommandOrControl+1': '👍',  // Like
-  'CommandOrControl+2': '❤️',  // Love
-  'CommandOrControl+3': '😂',  // Haha
-  'CommandOrControl+4': '😮',  // Wow
-  'CommandOrControl+5': '😢',  // Sad
-  'CommandOrControl+6': '😠',  // Angry
-};
-
 if (app.isPackaged) {
   console.log("Running packaged version of the app");
 }
@@ -48,6 +39,17 @@ let appConfig = {
   recordAllDisplays: true,
   selectedDisplayId: null,
   localOnlyStorage: false,
+  hotkeys: {
+    annotationWindow: 'CommandOrControl+Shift+N',
+    showPastSessions: 'CommandOrControl+Shift+O',
+    quitRecording: 'CommandOrControl+Shift+Q',
+    emoji1: 'CommandOrControl+1',  // Like
+    emoji2: 'CommandOrControl+2',  // Love
+    emoji3: 'CommandOrControl+3',  // Haha
+    emoji4: 'CommandOrControl+4',  // Wow
+    emoji5: 'CommandOrControl+5',  // Sad
+    emoji6: 'CommandOrControl+6',  // Angry
+  },
 };
 let shortcutsRegistered = false;
 let isUploading = false;
@@ -502,12 +504,12 @@ function createHomeWindow() {
     }
 
     homeWindow = new BrowserWindow({
-      width: 400,
-      height: 300,
+      width: 600,
+      height: 500,
       alwaysOnTop: true,
       transparent: true,
       frame: false,
-      resizable: false,
+      resizable: true,
       skipTaskbar: true,
       focusable: true,
       show: false,
@@ -562,11 +564,11 @@ function createSettingsWindow() {
   }
 
   settingsWindow = new BrowserWindow({
-    width: 460,
-    height: 320,
+    width: 600,
+    height: 850,
     modal: true,
     parent: homeWindow || null,
-    resizable: false,
+    resizable: true,
     show: false,
     webPreferences: {
       nodeIntegration: true,
@@ -945,11 +947,30 @@ function stopFFMpegIfRunning() {
   }
 }
 
+function reRegisterShortcuts() {
+  if (shortcutsRegistered) {
+    globalShortcut.unregisterAll();
+    shortcutsRegistered = false;
+  }
+  registerShortcuts();
+}
+
 function registerShortcuts() {
   if (shortcutsRegistered) return;
   shortcutsRegistered = true;
 
-  globalShortcut.register('CommandOrControl+Shift+N', () => {
+  const emojiMap = {
+    'emoji1': '👍',  // Like
+    'emoji2': '❤️',  // Love
+    'emoji3': '😂',  // Haha
+    'emoji4': '😮',  // Wow
+    'emoji5': '😢',  // Sad
+    'emoji6': '😠',  // Angry
+  };
+
+  const hotkeyConfig = appConfig.hotkeys || {};
+
+  globalShortcut.register(hotkeyConfig.annotationWindow || 'CommandOrControl+Shift+N', () => {
     focusedWindow = os.getFocusedWindow();
     if (noteWindow && !noteWindow.isVisible()) {
       noteWindow.setFocusable(true);
@@ -962,7 +983,7 @@ function registerShortcuts() {
     }
   });
 
-  globalShortcut.register('CommandOrControl+Shift+O', () => {
+  globalShortcut.register(hotkeyConfig.showPastSessions || 'CommandOrControl+Shift+O', () => {
     if (!mainWindow) {
       createMainWindow();
       return;
@@ -975,18 +996,24 @@ function registerShortcuts() {
     }
   });
 
-  for (const [shortcut, emoji] of Object.entries(emojiReactions)) {
-    globalShortcut.register(shortcut, () => {
-      if (emojiWindow) {
-        emojiWindow.webContents.send('show-emoji', emoji);
-      }
-      saveAnnotationLocally({ note: emoji, timestamp: Date.now() }).catch((err) => {
-        console.error('Error saving emoji annotation locally:', err);
+  for (let i = 1; i <= 6; i++) {
+    const hotkeyKey = `emoji${i}`;
+    const hotkey = hotkeyConfig[hotkeyKey];
+    const emoji = emojiMap[hotkeyKey];
+    
+    if (hotkey) {
+      globalShortcut.register(hotkey, () => {
+        if (emojiWindow) {
+          emojiWindow.webContents.send('show-emoji', emoji);
+        }
+        saveAnnotationLocally({ note: emoji, timestamp: Date.now() }).catch((err) => {
+          console.error('Error saving emoji annotation locally:', err);
+        });
       });
-    });
+    }
   }
 
-  globalShortcut.register('CommandOrControl+Shift+Q', async () => {
+  globalShortcut.register(hotkeyConfig.quitRecording || 'CommandOrControl+Shift+Q', async () => {
     console.log('Quit hotkey pressed: stopping recording');
     if (isUploading) return;
     isUploading = true;
@@ -1034,8 +1061,14 @@ async function startSession() {
 }
 
 async function saveSettings(partialSettings) {
+  const oldHotkeys = appConfig.hotkeys;
   appConfig = { ...appConfig, ...partialSettings };
   await writeConfig(appConfig);
+  
+  // If hotkeys have changed, re-register them
+  if (oldHotkeys && JSON.stringify(oldHotkeys) !== JSON.stringify(appConfig.hotkeys)) {
+    reRegisterShortcuts();
+  }
 }
 
 function getAvailableDisplays() {

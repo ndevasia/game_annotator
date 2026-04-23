@@ -96,6 +96,57 @@
         <small>When enabled, videos, metadata, and annotations are kept locally and not uploaded to S3 automatically.</small>
       </label>
     </div>
+
+    <div class="settings-field" style="margin-top: 24px; border-top: 1px solid rgba(0, 255, 255, 0.3); padding-top: 18px;">
+      <strong style="color: #00ffff;">Hotkey Bindings</strong>
+      <small style="color: #9fe9ff; margin-bottom: 12px; display: block;">Customize keyboard shortcuts (Ctrl/Cmd+Shift+..., Ctrl/Cmd+1, etc.)</small>
+      
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <label for="hotkey-annotation-window" style="flex: 1; color: #ffffff;">Open Annotation Window:</label>
+          <input id="hotkey-annotation-window" type="text" style="flex: 0.6; padding: 6px 10px; border: 1px solid #00ffff; border-radius: 4px; background: rgba(0, 0, 0, 0.8); color: #00ffff; font-family: 'Share Tech Mono', monospace;">
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <label for="hotkey-show-sessions" style="flex: 1; color: #ffffff;">Show Past Sessions:</label>
+          <input id="hotkey-show-sessions" type="text" style="flex: 0.6; padding: 6px 10px; border: 1px solid #00ffff; border-radius: 4px; background: rgba(0, 0, 0, 0.8); color: #00ffff; font-family: 'Share Tech Mono', monospace;">
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <label for="hotkey-quit-recording" style="flex: 1; color: #ffffff;">Quit Recording:</label>
+          <input id="hotkey-quit-recording" type="text" style="flex: 0.6; padding: 6px 10px; border: 1px solid #00ffff; border-radius: 4px; background: rgba(0, 0, 0, 0.8); color: #00ffff; font-family: 'Share Tech Mono', monospace;">
+        </div>
+        
+        <div style="margin-top: 8px; border-top: 1px solid rgba(0, 255, 255, 0.2); padding-top: 12px;">
+          <small style="color: #9fe9ff; display: block; margin-bottom: 8px;">Emoji Reactions:</small>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <label for="hotkey-emoji1" style="flex: 1; color: #ffffff; font-size: 0.9em;">👍 Like:</label>
+              <input id="hotkey-emoji1" type="text" style="flex: 0.8; padding: 4px 8px; border: 1px solid #00ffff; border-radius: 4px; background: rgba(0, 0, 0, 0.8); color: #00ffff; font-family: 'Share Tech Mono', monospace; font-size: 0.85em;">
+            </div>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <label for="hotkey-emoji2" style="flex: 1; color: #ffffff; font-size: 0.9em;">❤️ Love:</label>
+              <input id="hotkey-emoji2" type="text" style="flex: 0.8; padding: 4px 8px; border: 1px solid #00ffff; border-radius: 4px; background: rgba(0, 0, 0, 0.8); color: #00ffff; font-family: 'Share Tech Mono', monospace; font-size: 0.85em;">
+            </div>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <label for="hotkey-emoji3" style="flex: 1; color: #ffffff; font-size: 0.9em;">😂 Haha:</label>
+              <input id="hotkey-emoji3" type="text" style="flex: 0.8; padding: 4px 8px; border: 1px solid #00ffff; border-radius: 4px; background: rgba(0, 0, 0, 0.8); color: #00ffff; font-family: 'Share Tech Mono', monospace; font-size: 0.85em;">
+            </div>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <label for="hotkey-emoji4" style="flex: 1; color: #ffffff; font-size: 0.9em;">😮 Wow:</label>
+              <input id="hotkey-emoji4" type="text" style="flex: 0.8; padding: 4px 8px; border: 1px solid #00ffff; border-radius: 4px; background: rgba(0, 0, 0, 0.8); color: #00ffff; font-family: 'Share Tech Mono', monospace; font-size: 0.85em;">
+            </div>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <label for="hotkey-emoji5" style="flex: 1; color: #ffffff; font-size: 0.9em;">😢 Sad:</label>
+              <input id="hotkey-emoji5" type="text" style="flex: 0.8; padding: 4px 8px; border: 1px solid #00ffff; border-radius: 4px; background: rgba(0, 0, 0, 0.8); color: #00ffff; font-family: 'Share Tech Mono', monospace; font-size: 0.85em;">
+            </div>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <label for="hotkey-emoji6" style="flex: 1; color: #ffffff; font-size: 0.9em;">😠 Angry:</label>
+              <input id="hotkey-emoji6" type="text" style="flex: 0.8; padding: 4px 8px; border: 1px solid #00ffff; border-radius: 4px; background: rgba(0, 0, 0, 0.8); color: #00ffff; font-family: 'Share Tech Mono', monospace; font-size: 0.85em;">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="settings-actions">
       <button type="button" class="button-small" onclick="closeSettings()">Cancel</button>
       <button type="button" onclick="saveSettings()">Save</button>
@@ -108,6 +159,19 @@
     const localOnlyStorageCheckbox = document.getElementById('local-only-storage');
     const displaySelect = document.getElementById('display-select');
     const displayHelp = document.getElementById('display-help');
+
+    // Hotkey input elements
+    const hotkeyInputs = {
+      annotationWindow: document.getElementById('hotkey-annotation-window'),
+      showSessions: document.getElementById('hotkey-show-sessions'),
+      quitRecording: document.getElementById('hotkey-quit-recording'),
+      emoji1: document.getElementById('hotkey-emoji1'),
+      emoji2: document.getElementById('hotkey-emoji2'),
+      emoji3: document.getElementById('hotkey-emoji3'),
+      emoji4: document.getElementById('hotkey-emoji4'),
+      emoji5: document.getElementById('hotkey-emoji5'),
+      emoji6: document.getElementById('hotkey-emoji6'),
+    };
 
     function renderDisplayOptions(displays, selectedDisplayId) {
       displaySelect.innerHTML = '';
@@ -160,6 +224,19 @@
         localOnlyStorageCheckbox.checked = settings.localOnlyStorage === true;
         renderDisplayOptions(displays, settings.selectedDisplayId);
         updateDisplayFieldState();
+
+        // Load hotkey settings
+        if (settings.hotkeys) {
+          hotkeyInputs.annotationWindow.value = settings.hotkeys.annotationWindow || 'CommandOrControl+Shift+N';
+          hotkeyInputs.showSessions.value = settings.hotkeys.showPastSessions || 'CommandOrControl+Shift+O';
+          hotkeyInputs.quitRecording.value = settings.hotkeys.quitRecording || 'CommandOrControl+Shift+Q';
+          hotkeyInputs.emoji1.value = settings.hotkeys.emoji1 || 'CommandOrControl+1';
+          hotkeyInputs.emoji2.value = settings.hotkeys.emoji2 || 'CommandOrControl+2';
+          hotkeyInputs.emoji3.value = settings.hotkeys.emoji3 || 'CommandOrControl+3';
+          hotkeyInputs.emoji4.value = settings.hotkeys.emoji4 || 'CommandOrControl+4';
+          hotkeyInputs.emoji5.value = settings.hotkeys.emoji5 || 'CommandOrControl+5';
+          hotkeyInputs.emoji6.value = settings.hotkeys.emoji6 || 'CommandOrControl+6';
+        }
       } catch (error) {
         console.error('Failed to load display settings:', error);
         renderDisplayError('Unable to load displays');
@@ -172,6 +249,17 @@
         recordAllDisplays: recordAllDisplaysCheckbox.checked,
         selectedDisplayId: displaySelect.value || null,
         localOnlyStorage: localOnlyStorageCheckbox.checked,
+        hotkeys: {
+          annotationWindow: hotkeyInputs.annotationWindow.value,
+          showPastSessions: hotkeyInputs.showSessions.value,
+          quitRecording: hotkeyInputs.quitRecording.value,
+          emoji1: hotkeyInputs.emoji1.value,
+          emoji2: hotkeyInputs.emoji2.value,
+          emoji3: hotkeyInputs.emoji3.value,
+          emoji4: hotkeyInputs.emoji4.value,
+          emoji5: hotkeyInputs.emoji5.value,
+          emoji6: hotkeyInputs.emoji6.value,
+        },
       });
       ipcRenderer.send('close-settings');
     }
