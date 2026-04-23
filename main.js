@@ -18,15 +18,6 @@ var focusedWindow = null;
 // Instead of this, write it as an env variable and not a weird one off file
 var writeToAWS = true;
 
-const emojiReactions = {
-  'CommandOrControl+1': '👍',  // Like
-  'CommandOrControl+2': '❤️',  // Love
-  'CommandOrControl+3': '😂',  // Haha
-  'CommandOrControl+4': '😮',  // Wow
-  'CommandOrControl+5': '😢',  // Sad
-  'CommandOrControl+6': '😠',  // Angry
-};
-
 if (app.isPackaged) {
   console.log("Running packaged version of the app");
 }
@@ -39,6 +30,7 @@ let usernamePromptWindow = null;
 let emojiWindow = null;
 let loadingWindow = null;
 let settingsWindow = null;
+let recentNotesWindow = null;
 
 let ffmpegProcess = null;
 let currentRecordingPath = null;
@@ -48,6 +40,20 @@ let appConfig = {
   recordAllDisplays: true,
   selectedDisplayId: null,
   localOnlyStorage: false,
+  showRecentNotesOverlay: true,
+  recentNotesCount: 3,
+  hotkeys: {
+    annotationWindow: 'CommandOrControl+Shift+N',
+    showPastSessions: 'CommandOrControl+Shift+O',
+    quitRecording: 'CommandOrControl+Shift+Q',
+    toggleRecentNotesOverlay: 'CommandOrControl+Shift+P',
+    emoji1: 'CommandOrControl+1',  // Like
+    emoji2: 'CommandOrControl+2',  // Love
+    emoji3: 'CommandOrControl+3',  // Haha
+    emoji4: 'CommandOrControl+4',  // Wow
+    emoji5: 'CommandOrControl+5',  // Sad
+    emoji6: 'CommandOrControl+6',  // Angry
+  },
 };
 let shortcutsRegistered = false;
 let isUploading = false;
@@ -120,6 +126,11 @@ async function saveAnnotationLocally(annotation) {
 
   annotations.push(annotation);
   await fs.promises.writeFile(paths.annotationsPath, JSON.stringify(annotations, null, 2), 'utf8');
+
+  // Send annotation to recent notes overlay if enabled and visible
+  if (appConfig.showRecentNotesOverlay && recentNotesWindow && recentNotesWindow.isVisible()) {
+    recentNotesWindow.webContents.send('update-recent-notes', annotation);
+  }
 }
 
 async function ensureLocalAnnotationsFile() {
@@ -173,31 +184,58 @@ async function listLocalSessions(username) {
   const metadataDir = path.join(userRoot, 'metadata');
   const annotationsDir = path.join(userRoot, 'annotations');
 
-  if (!fs.existsSync(videosDir) || !fs.existsSync(metadataDir)) {
+  if (!fs.existsSync(videosDir) && !fs.existsSync(metadataDir) && !fs.existsSync(annotationsDir)) {
     return [];
   }
 
-  const videoFiles = (await fs.promises.readdir(videosDir)).filter((name) => name.endsWith('.mkv'));
+  const [videoFiles, metadataFiles, annotationFiles] = await Promise.all([
+    fs.existsSync(videosDir)
+      ? fs.promises.readdir(videosDir).then((items) => items.filter((name) => name.endsWith('.mkv')))
+      : Promise.resolve([]),
+    fs.existsSync(metadataDir)
+      ? fs.promises.readdir(metadataDir).then((items) => items.filter((name) => name.endsWith('.json')))
+      : Promise.resolve([]),
+    fs.existsSync(annotationsDir)
+      ? fs.promises.readdir(annotationsDir).then((items) => items.filter((name) => name.endsWith('.json')))
+      : Promise.resolve([]),
+  ]);
+
+  const sessionTimestamps = new Set();
+  videoFiles.forEach((name) => sessionTimestamps.add(name.replace(/\.mkv$/, '')));
+  metadataFiles.forEach((name) => sessionTimestamps.add(name.replace(/\.json$/, '')));
+  annotationFiles.forEach((name) => sessionTimestamps.add(name.replace(/\.json$/, '')));
+
   const sessions = [];
 
-  for (const fileName of videoFiles) {
-    const fileTimestamp = fileName.replace(/\.mkv$/, '');
+  for (const fileTimestamp of sessionTimestamps) {
     const metadataPath = path.join(metadataDir, `${fileTimestamp}.json`);
-    if (!fs.existsSync(metadataPath)) continue;
+    const annotationPath = path.join(annotationsDir, `${fileTimestamp}.json`);
+    const videoPath = path.join(videosDir, `${fileTimestamp}.mkv`);
 
-    let metadataObj;
-    try {
-      metadataObj = JSON.parse(await fs.promises.readFile(metadataPath, 'utf8'));
-    } catch {
-      continue;
+    const hasVideo = fs.existsSync(videoPath);
+    const hasMetadata = fs.existsSync(metadataPath);
+    const hasAnnotations = fs.existsSync(annotationPath);
+    if (!hasVideo && !hasMetadata && !hasAnnotations) continue;
+
+    let metadataObj = {};
+    if (hasMetadata) {
+      try {
+        metadataObj = JSON.parse(await fs.promises.readFile(metadataPath, 'utf8'));
+      } catch {
+        metadataObj = {};
+      }
     }
 
     sessions.push({
       title: metadataObj.title || 'Session',
       videoStartTimestamp: metadataObj.videoStartTimestamp || parseSessionTimestamp(fileTimestamp),
-      videoUrl: toFileUrl(path.join(videosDir, fileName)),
-      annotationPath: path.join(annotationsDir, `${fileTimestamp}.json`),
+      videoUrl: hasVideo ? toFileUrl(videoPath) : null,
+      annotationPath,
       isLocalOnly: true,
+      hasVideo,
+      hasMetadata,
+      hasAnnotations,
+      isInProgress: hasMetadata && !hasVideo,
       username,
       fileTimestamp,
     });
@@ -355,6 +393,21 @@ function createMainWindow() {
   });
 }
 
+function closeAllIndexWindows() {
+  const windows = BrowserWindow.getAllWindows();
+  for (const win of windows) {
+    const currentUrl = win.webContents.getURL() || '';
+    if (currentUrl.endsWith('/index.html') || currentUrl.includes('/index.html?')) {
+      try {
+        win.destroy();
+      } catch (err) {
+        console.warn('Failed to close an index window:', err);
+      }
+    }
+  }
+  mainWindow = null;
+}
+
 function createEmojiWindow() {
   if (emojiWindow) return;
 
@@ -451,6 +504,49 @@ function createStartWindow() {
 
 }
 
+function createRecentNotesWindow() {
+  if (recentNotesWindow) return;
+
+  // Calculate position for bottom-right corner
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
+  const windowWidth = 370;
+  const windowHeight = 330;
+  const padding = 20;
+  const x = Math.floor(screenWidth - windowWidth - padding);
+  const y = Math.floor(screenHeight - windowHeight - padding);
+
+  recentNotesWindow = new BrowserWindow({
+    x: x,
+    y: y,
+    width: 370,
+    height: 330,
+    alwaysOnTop: true,
+    transparent: true,
+    frame: false,
+    resizable: false,
+    skipTaskbar: true,
+    focusable: false,
+    show: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    }
+  });
+
+  recentNotesWindow.loadFile('recent-notes.html');
+
+  recentNotesWindow.once('ready-to-show', () => {
+    console.log('Recent notes overlay ready');
+  });
+
+  recentNotesWindow.setIgnoreMouseEvents(true, { forward: true });
+
+  recentNotesWindow.on('closed', () => {
+    recentNotesWindow = null;
+  });
+}
+
 function createHomeWindow() {
   return new Promise((resolve) => {
     // If already open, just focus it and return a fresh promise tied to user action
@@ -460,12 +556,12 @@ function createHomeWindow() {
     }
 
     homeWindow = new BrowserWindow({
-      width: 400,
-      height: 300,
+      width: 600,
+      height: 500,
       alwaysOnTop: true,
       transparent: true,
       frame: false,
-      resizable: false,
+      resizable: true,
       skipTaskbar: true,
       focusable: true,
       show: false,
@@ -520,11 +616,11 @@ function createSettingsWindow() {
   }
 
   settingsWindow = new BrowserWindow({
-    width: 460,
-    height: 320,
+    width: 600,
+    height: 850,
     modal: true,
     parent: homeWindow || null,
-    resizable: false,
+    resizable: true,
     show: false,
     webPreferences: {
       nodeIntegration: true,
@@ -903,11 +999,30 @@ function stopFFMpegIfRunning() {
   }
 }
 
+function reRegisterShortcuts() {
+  if (shortcutsRegistered) {
+    globalShortcut.unregisterAll();
+    shortcutsRegistered = false;
+  }
+  registerShortcuts();
+}
+
 function registerShortcuts() {
   if (shortcutsRegistered) return;
   shortcutsRegistered = true;
 
-  globalShortcut.register('CommandOrControl+Shift+N', () => {
+  const emojiMap = {
+    'emoji1': '👍',  // Like
+    'emoji2': '❤️',  // Love
+    'emoji3': '😂',  // Haha
+    'emoji4': '😮',  // Wow
+    'emoji5': '😢',  // Sad
+    'emoji6': '😠',  // Angry
+  };
+
+  const hotkeyConfig = appConfig.hotkeys || {};
+
+  globalShortcut.register(hotkeyConfig.annotationWindow || 'CommandOrControl+Shift+N', () => {
     focusedWindow = os.getFocusedWindow();
     if (noteWindow && !noteWindow.isVisible()) {
       noteWindow.setFocusable(true);
@@ -920,18 +1035,47 @@ function registerShortcuts() {
     }
   });
 
-  for (const [shortcut, emoji] of Object.entries(emojiReactions)) {
-    globalShortcut.register(shortcut, () => {
-      if (emojiWindow) {
-        emojiWindow.webContents.send('show-emoji', emoji);
-      }
-      saveAnnotationLocally({ note: emoji, timestamp: Date.now() }).catch((err) => {
-        console.error('Error saving emoji annotation locally:', err);
+  globalShortcut.register(hotkeyConfig.showPastSessions || 'CommandOrControl+Shift+O', () => {
+    if (!mainWindow) {
+      createMainWindow();
+      return;
+    }
+
+    mainWindow.show();
+    mainWindow.focus();
+    if (!mainWindow.webContents.isLoading()) {
+      mainWindow.webContents.send('session-data', sessionMetadata.getUsername());
+    }
+  });
+
+  for (let i = 1; i <= 6; i++) {
+    const hotkeyKey = `emoji${i}`;
+    const hotkey = hotkeyConfig[hotkeyKey];
+    const emoji = emojiMap[hotkeyKey];
+    
+    if (hotkey) {
+      globalShortcut.register(hotkey, () => {
+        if (emojiWindow) {
+          emojiWindow.webContents.send('show-emoji', emoji);
+        }
+        saveAnnotationLocally({ note: emoji, timestamp: Date.now() }).catch((err) => {
+          console.error('Error saving emoji annotation locally:', err);
+        });
       });
-    });
+    }
   }
 
-  globalShortcut.register('CommandOrControl+Shift+Q', async () => {
+  globalShortcut.register(hotkeyConfig.toggleRecentNotesOverlay || 'CommandOrControl+Shift+P', () => {
+    if (recentNotesWindow) {
+      if (recentNotesWindow.isVisible()) {
+        recentNotesWindow.hide();
+      } else {
+        recentNotesWindow.show();
+      }
+    }
+  });
+
+  globalShortcut.register(hotkeyConfig.quitRecording || 'CommandOrControl+Shift+Q', async () => {
     console.log('Quit hotkey pressed: stopping recording');
     if (isUploading) return;
     isUploading = true;
@@ -946,6 +1090,10 @@ function registerShortcuts() {
     if (noteWindow) {
       noteWindow.close();
     }
+    if (recentNotesWindow) {
+      recentNotesWindow.close();
+    }
+    closeAllIndexWindows();
     createMainWindow();
     isUploading = false;
   });
@@ -975,11 +1123,31 @@ async function startSession() {
   await startFFMpegRecording();
   createNoteWindow();        // open overlay window
   createEmojiWindow();
+  
+  // Create and show recent notes overlay if enabled
+  if (appConfig.showRecentNotesOverlay) {
+    createRecentNotesWindow();
+    if (recentNotesWindow) {
+      recentNotesWindow.show();
+      // Send the configured message count to the overlay
+      const count = appConfig.recentNotesCount || 3;
+      recentNotesWindow.webContents.send('set-notes-display-count', count);
+      // Send the video start timestamp for relative time calculations
+      const videoStart = sessionMetadata.getVideoStartTimestamp();
+      recentNotesWindow.webContents.send('set-video-start-time', videoStart);
+    }
+  }
 }
 
 async function saveSettings(partialSettings) {
+  const oldHotkeys = appConfig.hotkeys;
   appConfig = { ...appConfig, ...partialSettings };
   await writeConfig(appConfig);
+  
+  // If hotkeys have changed, re-register them
+  if (oldHotkeys && JSON.stringify(oldHotkeys) !== JSON.stringify(appConfig.hotkeys)) {
+    reRegisterShortcuts();
+  }
 }
 
 function getAvailableDisplays() {
@@ -1133,6 +1301,88 @@ app.whenReady().then(async () => {
   ipcMain.handle('delete-local-session', async (event, { username, fileTimestamp }) => {
     await deleteLocalSession(username, fileTimestamp);
     return { success: true };
+  });
+  ipcMain.handle('download-local-session', async (event, { username, fileTimestamp }) => {
+    const paths = getLocalSessionPaths(username, fileTimestamp);
+    const result = await dialog.showSaveDialog(homeWindow, {
+      title: 'Download Session Files',
+      defaultPath: `session_${fileTimestamp}`,
+      properties: ['createDirectory']
+    });
+
+    if (result.canceled) {
+      return { success: false, reason: 'User canceled' };
+    }
+
+    const destDir = result.filePath;
+    try {
+      await fs.promises.mkdir(destDir, { recursive: true });
+      
+      if (fs.existsSync(paths.videoPath)) {
+        await fs.promises.copyFile(paths.videoPath, path.join(destDir, `${fileTimestamp}.mkv`));
+      }
+      if (fs.existsSync(paths.metadataPath)) {
+        await fs.promises.copyFile(paths.metadataPath, path.join(destDir, `${fileTimestamp}_metadata.json`));
+      }
+      if (fs.existsSync(paths.annotationsPath)) {
+        await fs.promises.copyFile(paths.annotationsPath, path.join(destDir, `${fileTimestamp}_annotations.json`));
+      }
+      
+      return { success: true };
+    } catch (err) {
+      console.error('Error downloading session files:', err);
+      throw err;
+    }
+  });
+  ipcMain.handle('download-s3-session', async (event, { username, fileTimestamp }) => {
+    if (!awsManager) {
+      throw new Error('AWS Manager not initialized');
+    }
+
+    const result = await dialog.showSaveDialog(homeWindow, {
+      title: 'Download Session Files from Cloud',
+      defaultPath: `session_${fileTimestamp}`,
+      properties: ['createDirectory']
+    });
+
+    if (result.canceled) {
+      return { success: false, reason: 'User canceled' };
+    }
+
+    const destDir = result.filePath;
+    try {
+      await fs.promises.mkdir(destDir, { recursive: true });
+      
+      const videoKey = `${username}/videos/${fileTimestamp}.mkv`;
+      const metadataKey = `${username}/metadata/${fileTimestamp}.json`;
+      const annotationsKey = `${username}/annotations/${fileTimestamp}.json`;
+
+      try {
+        const videoBuffer = await awsManager.getFileFromS3(videoKey);
+        await fs.promises.writeFile(path.join(destDir, `${fileTimestamp}.mkv`), videoBuffer);
+      } catch (err) {
+        console.warn('Video file not found in S3, continuing...');
+      }
+
+      try {
+        const metadataBuffer = await awsManager.getFileFromS3(metadataKey);
+        await fs.promises.writeFile(path.join(destDir, `${fileTimestamp}_metadata.json`), metadataBuffer);
+      } catch (err) {
+        console.warn('Metadata file not found in S3, continuing...');
+      }
+
+      try {
+        const annotationsBuffer = await awsManager.getFileFromS3(annotationsKey);
+        await fs.promises.writeFile(path.join(destDir, `${fileTimestamp}_annotations.json`), annotationsBuffer);
+      } catch (err) {
+        console.warn('Annotations file not found in S3, continuing...');
+      }
+      
+      return { success: true };
+    } catch (err) {
+      console.error('Error downloading S3 session files:', err);
+      throw err;
+    }
   });
   ipcMain.on('close-app', () => {
     console.log("Closing home");
