@@ -96,6 +96,18 @@
         <small>When enabled, videos, metadata, and annotations are kept locally and not uploaded to S3 automatically.</small>
       </label>
     </div>
+    <div class="settings-row">
+      <input id="show-recent-notes-overlay" type="checkbox">
+      <label for="show-recent-notes-overlay" class="settings-copy">
+        <strong>Show recent notes overlay</strong>
+        <small>When enabled, displays the most recent annotations in a transparent overlay during recording.</small>
+      </label>
+    </div>
+    <div class="settings-field" style="margin-left: 32px; margin-top: 12px;">
+      <label for="recent-notes-count" style="color: #ffffff;"><strong>Number of notes to display:</strong></label>
+      <input id="recent-notes-count" type="number" min="1" max="10" style="padding: 8px 10px; border: 1px solid #00ffff; border-radius: 4px; background: rgba(0, 0, 0, 0.8); color: #00ffff; font-family: 'Share Tech Mono', monospace; width: 100px;">
+      <small style="color: #9fe9ff; display: block; margin-top: 4px;">How many annotations to show (1-10)</small>
+    </div>
 
     <div class="settings-field" style="margin-top: 24px; border-top: 1px solid rgba(0, 255, 255, 0.3); padding-top: 18px;">
       <strong style="color: #00ffff;">Hotkey Bindings</strong>
@@ -114,10 +126,14 @@
           <label for="hotkey-quit-recording" style="flex: 1; color: #ffffff;">Quit Recording:</label>
           <input id="hotkey-quit-recording" type="text" style="flex: 0.6; padding: 6px 10px; border: 1px solid #00ffff; border-radius: 4px; background: rgba(0, 0, 0, 0.8); color: #00ffff; font-family: 'Share Tech Mono', monospace;">
         </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <label for="hotkey-toggle-overlay" style="flex: 1; color: #ffffff;">Toggle Overlay:</label>
+          <input id="hotkey-toggle-overlay" type="text" style="flex: 0.6; padding: 6px 10px; border: 1px solid #00ffff; border-radius: 4px; background: rgba(0, 0, 0, 0.8); color: #00ffff; font-family: 'Share Tech Mono', monospace;">
+        </div>
         
-        <div style="margin-top: 8px; border-top: 1px solid rgba(0, 255, 255, 0.2); padding-top: 12px;">
-          <small style="color: #9fe9ff; display: block; margin-bottom: 8px;">Emoji Reactions:</small>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+        <div style="margin-top: 8px; border-top: 1px solid rgba(0, 255, 255, 0.2); padding-top: 12px; padding-left: 8px; padding-right: 8px; padding-bottom: 12px;">
+          <small style="color: #9fe9ff; display: block; margin-bottom: 12px;">Emoji Reactions:</small>
+          <div style="display: flex; flex-direction: column; gap: 10px;">
             <div style="display: flex; gap: 6px; align-items: center;">
               <label for="hotkey-emoji1" style="flex: 1; color: #ffffff; font-size: 0.9em;">👍 Like:</label>
               <input id="hotkey-emoji1" type="text" style="flex: 0.8; padding: 4px 8px; border: 1px solid #00ffff; border-radius: 4px; background: rgba(0, 0, 0, 0.8); color: #00ffff; font-family: 'Share Tech Mono', monospace; font-size: 0.85em;">
@@ -157,6 +173,8 @@
     const { ipcRenderer } = require('electron');
     const recordAllDisplaysCheckbox = document.getElementById('record-all-displays');
     const localOnlyStorageCheckbox = document.getElementById('local-only-storage');
+    const showRecentNotesOverlayCheckbox = document.getElementById('show-recent-notes-overlay');
+    const recentNotesCountInput = document.getElementById('recent-notes-count');
     const displaySelect = document.getElementById('display-select');
     const displayHelp = document.getElementById('display-help');
 
@@ -165,6 +183,7 @@
       annotationWindow: document.getElementById('hotkey-annotation-window'),
       showSessions: document.getElementById('hotkey-show-sessions'),
       quitRecording: document.getElementById('hotkey-quit-recording'),
+      toggleOverlay: document.getElementById('hotkey-toggle-overlay'),
       emoji1: document.getElementById('hotkey-emoji1'),
       emoji2: document.getElementById('hotkey-emoji2'),
       emoji3: document.getElementById('hotkey-emoji3'),
@@ -222,6 +241,8 @@
 
         recordAllDisplaysCheckbox.checked = settings.recordAllDisplays !== false;
         localOnlyStorageCheckbox.checked = settings.localOnlyStorage === true;
+        showRecentNotesOverlayCheckbox.checked = settings.showRecentNotesOverlay !== false;
+        recentNotesCountInput.value = settings.recentNotesCount || 3;
         renderDisplayOptions(displays, settings.selectedDisplayId);
         updateDisplayFieldState();
 
@@ -230,6 +251,7 @@
           hotkeyInputs.annotationWindow.value = settings.hotkeys.annotationWindow || 'CommandOrControl+Shift+N';
           hotkeyInputs.showSessions.value = settings.hotkeys.showPastSessions || 'CommandOrControl+Shift+O';
           hotkeyInputs.quitRecording.value = settings.hotkeys.quitRecording || 'CommandOrControl+Shift+Q';
+          hotkeyInputs.toggleOverlay.value = settings.hotkeys.toggleRecentNotesOverlay || 'CommandOrControl+Shift+P';
           hotkeyInputs.emoji1.value = settings.hotkeys.emoji1 || 'CommandOrControl+1';
           hotkeyInputs.emoji2.value = settings.hotkeys.emoji2 || 'CommandOrControl+2';
           hotkeyInputs.emoji3.value = settings.hotkeys.emoji3 || 'CommandOrControl+3';
@@ -245,14 +267,18 @@
     }
 
     async function saveSettings() {
+      const count = Math.max(1, Math.min(10, parseInt(recentNotesCountInput.value) || 3));
       await ipcRenderer.invoke('save-settings', {
         recordAllDisplays: recordAllDisplaysCheckbox.checked,
         selectedDisplayId: displaySelect.value || null,
         localOnlyStorage: localOnlyStorageCheckbox.checked,
+        showRecentNotesOverlay: showRecentNotesOverlayCheckbox.checked,
+        recentNotesCount: count,
         hotkeys: {
           annotationWindow: hotkeyInputs.annotationWindow.value,
           showPastSessions: hotkeyInputs.showSessions.value,
           quitRecording: hotkeyInputs.quitRecording.value,
+          toggleRecentNotesOverlay: hotkeyInputs.toggleOverlay.value,
           emoji1: hotkeyInputs.emoji1.value,
           emoji2: hotkeyInputs.emoji2.value,
           emoji3: hotkeyInputs.emoji3.value,

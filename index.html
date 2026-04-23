@@ -218,6 +218,29 @@
       opacity: 0.9;
     }
 
+    .video-buttons-container {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 1em;
+    }
+
+    .video-wrapper {
+      flex: 0 0 auto;
+      max-width: 700px;
+    }
+
+    .button-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-width: fit-content;
+    }
+
+    .button-group button {
+      white-space: nowrap;
+    }
+
     .annotation.new-note {
       animation: revealNote 0.35s ease-out;
     }
@@ -378,11 +401,12 @@
 
     loadMoreBtn.addEventListener('click', renderNextPage);
 
-    function styleActionButton(button, primaryColor) {
-      button.style.marginLeft = '12px';
-      button.style.padding = '6px 14px';
+    function styleActionButton(button, primaryColor, isSmall = false) {
+      button.style.marginLeft = '0';
+      button.style.padding = isSmall ? '5px 12px' : '6px 14px';
+      button.style.fontSize = isSmall ? '0.8em' : '1em';
       button.style.border = `1px solid ${primaryColor}`;
-      button.style.borderRadius = '6px';
+      button.style.borderRadius = '3px';
       button.style.background = 'rgba(40,0,60,0.6)';
       button.style.color = primaryColor;
       button.style.fontFamily = "'Share Tech Mono', monospace";
@@ -439,7 +463,7 @@
       if (session.source === 'local') {
         return { label: 'Local', className: 'local', showDot: false };
       }
-      return { label: 'Saved', className: 'saved', showDot: false };
+      return { label: 'Cloud', className: 'saved', showDot: false };
     }
 
     function createStatusBadge(session) {
@@ -580,9 +604,13 @@
       heading.appendChild(headingLabel);
       heading.appendChild(createStatusBadge(session));
 
+      // Create button container early so buttons can be added to it
+      const buttonContainer = document.createElement('div');
+      buttonContainer.className = 'button-group';
+
       const deleteSessionBtn = document.createElement('button');
-      deleteSessionBtn.textContent = 'Delete Session';
-      styleActionButton(deleteSessionBtn, '#ff00ff');
+      deleteSessionBtn.textContent = 'Delete';
+      styleActionButton(deleteSessionBtn, '#ff00ff', true);
 
       deleteSessionBtn.onclick = async () => {
         if (!confirm('Are you sure you want to delete this entire session (video, metadata, and annotations)?')) return;
@@ -603,13 +631,71 @@
       };
 
       if (!(session.source === 'local' && session.isInProgress)) {
-        heading.appendChild(deleteSessionBtn);
+        buttonContainer.appendChild(deleteSessionBtn);
+      }
+
+      if (session.source === 'local' && !session.isInProgress) {
+        const downloadBtn = document.createElement('button');
+        downloadBtn.textContent = 'Download';
+        styleActionButton(downloadBtn, '#00ff00', true);
+
+        downloadBtn.onclick = async () => {
+          downloadBtn.disabled = true;
+          downloadBtn.textContent = 'Downloading...';
+          try {
+            await ipcRenderer.invoke('download-local-session', {
+              username: session.username || activeUsername,
+              fileTimestamp: session.fileTimestamp,
+            });
+            downloadBtn.textContent = 'Downloaded!';
+            setTimeout(() => {
+              downloadBtn.disabled = false;
+              downloadBtn.textContent = 'Download';
+            }, 2000);
+          } catch (err) {
+            console.error('Failed to download local session:', err);
+            alert('Error downloading session files.');
+            downloadBtn.disabled = false;
+            downloadBtn.textContent = 'Download';
+          }
+        };
+
+        buttonContainer.appendChild(downloadBtn);
+      }
+
+      if (session.source !== 'local') {
+        const downloadS3Btn = document.createElement('button');
+        downloadS3Btn.textContent = 'Download';
+        styleActionButton(downloadS3Btn, '#00ff00', true);
+
+        downloadS3Btn.onclick = async () => {
+          downloadS3Btn.disabled = true;
+          downloadS3Btn.textContent = 'Downloading...';
+          try {
+            await ipcRenderer.invoke('download-s3-session', {
+              username: session.username,
+              fileTimestamp: session.fileTimestamp,
+            });
+            downloadS3Btn.textContent = 'Downloaded!';
+            setTimeout(() => {
+              downloadS3Btn.disabled = false;
+              downloadS3Btn.textContent = 'Download';
+            }, 2000);
+          } catch (err) {
+            console.error('Failed to download S3 session:', err);
+            alert('Error downloading session files.');
+            downloadS3Btn.disabled = false;
+            downloadS3Btn.textContent = 'Download';
+          }
+        };
+
+        buttonContainer.appendChild(downloadS3Btn);
       }
 
       if (session.source === 'local' && !session.isInProgress) {
         const uploadBtn = document.createElement('button');
-        uploadBtn.textContent = 'Upload To S3';
-        styleActionButton(uploadBtn, '#ffe066');
+        uploadBtn.textContent = 'Upload';
+        styleActionButton(uploadBtn, '#ffe066', true);
 
         uploadBtn.onclick = async () => {
           uploadBtn.disabled = true;
@@ -624,11 +710,11 @@
             console.error('Failed to upload local session:', err);
             alert('Error uploading local session to S3.');
             uploadBtn.disabled = false;
-            uploadBtn.textContent = 'Upload To S3';
+            uploadBtn.textContent = 'Upload';
           }
         };
 
-        heading.appendChild(uploadBtn);
+        buttonContainer.appendChild(uploadBtn);
       }
 
       const hasVideo = session.hasVideo !== false && Boolean(session.videoUrl);
@@ -640,6 +726,15 @@
       } else {
         mediaEl = createVideoPlaceholder(Boolean(session.isInProgress));
       }
+
+      const videoWrapper = document.createElement('div');
+      videoWrapper.className = 'video-wrapper';
+      videoWrapper.appendChild(mediaEl);
+
+      const videoButtonsContainer = document.createElement('div');
+      videoButtonsContainer.className = 'video-buttons-container';
+      videoButtonsContainer.appendChild(videoWrapper);
+      videoButtonsContainer.appendChild(buttonContainer);
 
       const annotationDiv = document.createElement('div');
       annotationDiv.className = 'annotations';
@@ -665,7 +760,7 @@
       }
 
       sessionDiv.appendChild(heading);
-      sessionDiv.appendChild(mediaEl);
+      sessionDiv.appendChild(videoButtonsContainer);
       sessionDiv.appendChild(annotationDiv);
       if (footerDiv) {
         sessionDiv.appendChild(footerDiv);

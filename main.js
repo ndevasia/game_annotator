@@ -30,6 +30,7 @@ let usernamePromptWindow = null;
 let emojiWindow = null;
 let loadingWindow = null;
 let settingsWindow = null;
+let recentNotesWindow = null;
 
 let ffmpegProcess = null;
 let currentRecordingPath = null;
@@ -39,10 +40,13 @@ let appConfig = {
   recordAllDisplays: true,
   selectedDisplayId: null,
   localOnlyStorage: false,
+  showRecentNotesOverlay: true,
+  recentNotesCount: 3,
   hotkeys: {
     annotationWindow: 'CommandOrControl+Shift+N',
     showPastSessions: 'CommandOrControl+Shift+O',
     quitRecording: 'CommandOrControl+Shift+Q',
+    toggleRecentNotesOverlay: 'CommandOrControl+Shift+P',
     emoji1: 'CommandOrControl+1',  // Like
     emoji2: 'CommandOrControl+2',  // Love
     emoji3: 'CommandOrControl+3',  // Haha
@@ -122,6 +126,11 @@ async function saveAnnotationLocally(annotation) {
 
   annotations.push(annotation);
   await fs.promises.writeFile(paths.annotationsPath, JSON.stringify(annotations, null, 2), 'utf8');
+
+  // Send annotation to recent notes overlay if enabled and visible
+  if (appConfig.showRecentNotesOverlay && recentNotesWindow && recentNotesWindow.isVisible()) {
+    recentNotesWindow.webContents.send('update-recent-notes', annotation);
+  }
 }
 
 async function ensureLocalAnnotationsFile() {
@@ -493,6 +502,49 @@ function createStartWindow() {
     console.log('Start window ready');
   });
 
+}
+
+function createRecentNotesWindow() {
+  if (recentNotesWindow) return;
+
+  // Calculate position for bottom-right corner
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
+  const windowWidth = 370;
+  const windowHeight = 330;
+  const padding = 20;
+  const x = Math.floor(screenWidth - windowWidth - padding);
+  const y = Math.floor(screenHeight - windowHeight - padding);
+
+  recentNotesWindow = new BrowserWindow({
+    x: x,
+    y: y,
+    width: 370,
+    height: 330,
+    alwaysOnTop: true,
+    transparent: true,
+    frame: false,
+    resizable: false,
+    skipTaskbar: true,
+    focusable: false,
+    show: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    }
+  });
+
+  recentNotesWindow.loadFile('recent-notes.html');
+
+  recentNotesWindow.once('ready-to-show', () => {
+    console.log('Recent notes overlay ready');
+  });
+
+  recentNotesWindow.setIgnoreMouseEvents(true, { forward: true });
+
+  recentNotesWindow.on('closed', () => {
+    recentNotesWindow = null;
+  });
 }
 
 function createHomeWindow() {
@@ -1013,6 +1065,16 @@ function registerShortcuts() {
     }
   }
 
+  globalShortcut.register(hotkeyConfig.toggleRecentNotesOverlay || 'CommandOrControl+Shift+P', () => {
+    if (recentNotesWindow) {
+      if (recentNotesWindow.isVisible()) {
+        recentNotesWindow.hide();
+      } else {
+        recentNotesWindow.show();
+      }
+    }
+  });
+
   globalShortcut.register(hotkeyConfig.quitRecording || 'CommandOrControl+Shift+Q', async () => {
     console.log('Quit hotkey pressed: stopping recording');
     if (isUploading) return;
@@ -1027,6 +1089,9 @@ function registerShortcuts() {
     }
     if (noteWindow) {
       noteWindow.close();
+    }
+    if (recentNotesWindow) {
+      recentNotesWindow.close();
     }
     closeAllIndexWindows();
     createMainWindow();
@@ -1058,6 +1123,20 @@ async function startSession() {
   await startFFMpegRecording();
   createNoteWindow();        // open overlay window
   createEmojiWindow();
+  
+  // Create and show recent notes overlay if enabled
+  if (appConfig.showRecentNotesOverlay) {
+    createRecentNotesWindow();
+    if (recentNotesWindow) {
+      recentNotesWindow.show();
+      // Send the configured message count to the overlay
+      const count = appConfig.recentNotesCount || 3;
+      recentNotesWindow.webContents.send('set-notes-display-count', count);
+      // Send the video start timestamp for relative time calculations
+      const videoStart = sessionMetadata.getVideoStartTimestamp();
+      recentNotesWindow.webContents.send('set-video-start-time', videoStart);
+    }
+  }
 }
 
 async function saveSettings(partialSettings) {
@@ -1222,6 +1301,88 @@ app.whenReady().then(async () => {
   ipcMain.handle('delete-local-session', async (event, { username, fileTimestamp }) => {
     await deleteLocalSession(username, fileTimestamp);
     return { success: true };
+  });
+  ipcMain.handle('download-local-session', async (event, { username, fileTimestamp }) => {
+    const paths = getLocalSessionPaths(username, fileTimestamp);
+    const result = await dialog.showSaveDialog(homeWindow, {
+      title: 'Download Session Files',
+      defaultPath: `session_${fileTimestamp}`,
+      properties: ['createDirectory']
+    });
+
+    if (result.canceled) {
+      return { success: false, reason: 'User canceled' };
+    }
+
+    const destDir = result.filePath;
+    try {
+      await fs.promises.mkdir(destDir, { recursive: true });
+      
+      if (fs.existsSync(paths.videoPath)) {
+        await fs.promises.copyFile(paths.videoPath, path.join(destDir, `${fileTimestamp}.mkv`));
+      }
+      if (fs.existsSync(paths.metadataPath)) {
+        await fs.promises.copyFile(paths.metadataPath, path.join(destDir, `${fileTimestamp}_metadata.json`));
+      }
+      if (fs.existsSync(paths.annotationsPath)) {
+        await fs.promises.copyFile(paths.annotationsPath, path.join(destDir, `${fileTimestamp}_annotations.json`));
+      }
+      
+      return { success: true };
+    } catch (err) {
+      console.error('Error downloading session files:', err);
+      throw err;
+    }
+  });
+  ipcMain.handle('download-s3-session', async (event, { username, fileTimestamp }) => {
+    if (!awsManager) {
+      throw new Error('AWS Manager not initialized');
+    }
+
+    const result = await dialog.showSaveDialog(homeWindow, {
+      title: 'Download Session Files from Cloud',
+      defaultPath: `session_${fileTimestamp}`,
+      properties: ['createDirectory']
+    });
+
+    if (result.canceled) {
+      return { success: false, reason: 'User canceled' };
+    }
+
+    const destDir = result.filePath;
+    try {
+      await fs.promises.mkdir(destDir, { recursive: true });
+      
+      const videoKey = `${username}/videos/${fileTimestamp}.mkv`;
+      const metadataKey = `${username}/metadata/${fileTimestamp}.json`;
+      const annotationsKey = `${username}/annotations/${fileTimestamp}.json`;
+
+      try {
+        const videoBuffer = await awsManager.getFileFromS3(videoKey);
+        await fs.promises.writeFile(path.join(destDir, `${fileTimestamp}.mkv`), videoBuffer);
+      } catch (err) {
+        console.warn('Video file not found in S3, continuing...');
+      }
+
+      try {
+        const metadataBuffer = await awsManager.getFileFromS3(metadataKey);
+        await fs.promises.writeFile(path.join(destDir, `${fileTimestamp}_metadata.json`), metadataBuffer);
+      } catch (err) {
+        console.warn('Metadata file not found in S3, continuing...');
+      }
+
+      try {
+        const annotationsBuffer = await awsManager.getFileFromS3(annotationsKey);
+        await fs.promises.writeFile(path.join(destDir, `${fileTimestamp}_annotations.json`), annotationsBuffer);
+      } catch (err) {
+        console.warn('Annotations file not found in S3, continuing...');
+      }
+      
+      return { success: true };
+    } catch (err) {
+      console.error('Error downloading S3 session files:', err);
+      throw err;
+    }
   });
   ipcMain.on('close-app', () => {
     console.log("Closing home");
