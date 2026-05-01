@@ -87,3 +87,6 @@ The role must trust your IAM user to allow the `sts:AssumeRole` action. Update t
     ]
 }
 ```
+
+## Using SavePoint
+A list of settings and configurations for SavePoint can be found in config.md.

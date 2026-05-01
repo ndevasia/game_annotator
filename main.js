@@ -49,12 +49,12 @@ let appConfig = {
     showPastSessions: 'CommandOrControl+Shift+O',
     quitRecording: 'CommandOrControl+Shift+Q',
     toggleRecentNotesOverlay: 'CommandOrControl+Shift+P',
-    emoji1: 'CommandOrControl+1',  // Like
-    emoji2: 'CommandOrControl+2',  // Love
-    emoji3: 'CommandOrControl+3',  // Haha
-    emoji4: 'CommandOrControl+4',  // Wow
-    emoji5: 'CommandOrControl+5',  // Sad
-    emoji6: 'CommandOrControl+6',  // Angry
+    emoji1: 'CommandOrControl+Shift+1',  // Like
+    emoji2: 'CommandOrControl+Shift+2',  // Love
+    emoji3: 'CommandOrControl+Shift+3',  // Haha
+    emoji4: 'CommandOrControl+Shift+4',  // Wow
+    emoji5: 'CommandOrControl+Shift+5',  // Sad
+    emoji6: 'CommandOrControl+Shift+6',  // Angry
   },
 };
 let shortcutsRegistered = false;
