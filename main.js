@@ -31,6 +31,7 @@ let emojiWindow = null;
 let loadingWindow = null;
 let settingsWindow = null;
 let recentNotesWindow = null;
+let reviewWindow = null;
 
 let ffmpegProcess = null;
 let currentRecordingPath = null;
@@ -41,18 +42,19 @@ let appConfig = {
   selectedDisplayId: null,
   localOnlyStorage: false,
   showRecentNotesOverlay: true,
+  enablePostGameReview: false,
   recentNotesCount: 3,
   hotkeys: {
     annotationWindow: 'CommandOrControl+Shift+N',
     showPastSessions: 'CommandOrControl+Shift+O',
     quitRecording: 'CommandOrControl+Shift+Q',
     toggleRecentNotesOverlay: 'CommandOrControl+Shift+P',
-    emoji1: 'CommandOrControl+1',  // Like
-    emoji2: 'CommandOrControl+2',  // Love
-    emoji3: 'CommandOrControl+3',  // Haha
-    emoji4: 'CommandOrControl+4',  // Wow
-    emoji5: 'CommandOrControl+5',  // Sad
-    emoji6: 'CommandOrControl+6',  // Angry
+    emoji1: 'CommandOrControl+Shift+1',  // Like
+    emoji2: 'CommandOrControl+Shift+2',  // Love
+    emoji3: 'CommandOrControl+Shift+3',  // Haha
+    emoji4: 'CommandOrControl+Shift+4',  // Wow
+    emoji5: 'CommandOrControl+Shift+5',  // Sad
+    emoji6: 'CommandOrControl+Shift+6',  // Angry
   },
 };
 let shortcutsRegistered = false;
@@ -237,6 +239,9 @@ async function listLocalSessions(username) {
     sessions.push({
       title: metadataObj.title || 'Session',
       videoStartTimestamp: metadataObj.videoStartTimestamp || parseSessionTimestamp(fileTimestamp),
+      postGameReview: metadataObj.postGameReview || '',
+      postGameReviewSavedAt: metadataObj.postGameReviewSavedAt || null,
+      postGameReviewLastEditedAt: metadataObj.postGameReviewLastEditedAt || null,
       videoUrl: hasVideo ? toFileUrl(videoPath) : null,
       annotationPath,
       isLocalOnly: true,
@@ -285,6 +290,47 @@ async function deleteLocalSession(username, fileTimestamp) {
   await cleanupLocalSession(username, fileTimestamp);
 }
 
+async function updateLocalSessionReview(username, fileTimestamp, review) {
+  if (!username || !fileTimestamp) {
+    throw new Error('Username and fileTimestamp are required to update local session review.');
+  }
+
+  await ensureLocalSessionDirs(username);
+  const paths = getLocalSessionPaths(username, fileTimestamp);
+
+  let metadataObj = {
+    username,
+    title: 'Session',
+    fileTimestamp,
+    videoStartTimestamp: parseSessionTimestamp(fileTimestamp),
+  };
+
+  if (fs.existsSync(paths.metadataPath)) {
+    try {
+      const existing = await fs.promises.readFile(paths.metadataPath, 'utf8');
+      const parsed = JSON.parse(existing);
+      if (parsed && typeof parsed === 'object') {
+        metadataObj = { ...metadataObj, ...parsed };
+      }
+    } catch {
+      // Keep fallback metadata object if existing file is unreadable.
+    }
+  }
+
+  metadataObj.postGameReview = review || '';
+  if (metadataObj.postGameReview) {
+    const now = Date.now();
+    if (!metadataObj.postGameReviewSavedAt) {
+      metadataObj.postGameReviewSavedAt = now;
+    }
+    metadataObj.postGameReviewLastEditedAt = now;
+  } else {
+    metadataObj.postGameReviewSavedAt = null;
+    metadataObj.postGameReviewLastEditedAt = null;
+  }
+  await fs.promises.writeFile(paths.metadataPath, JSON.stringify(metadataObj, null, 2), 'utf8');
+}
+
 function createLoadingWindow() {
   if (loadingWindow) return;
 
@@ -319,6 +365,71 @@ function closeLoadingWindow() {
     loadingWindow.close();
     loadingWindow = null;
   }
+}
+
+function createPostGameReviewWindow() {
+  return new Promise((resolve) => {
+    if (reviewWindow && !reviewWindow.isDestroyed()) {
+      reviewWindow.focus();
+      resolve('');
+      return;
+    }
+
+    reviewWindow = new BrowserWindow({
+      width: 760,
+      height: 420,
+      frame: false,
+      transparent: true,
+      alwaysOnTop: true,
+      resizable: true,
+      movable: true,
+      show: false,
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false,
+      }
+    });
+
+    reviewWindow.loadFile('review.html');
+
+    reviewWindow.once('ready-to-show', () => {
+      if (reviewWindow) {
+        reviewWindow.show();
+        reviewWindow.focus();
+      }
+    });
+
+    const cleanup = () => {
+      ipcMain.removeListener('post-game-review-submitted', onSubmitted);
+      ipcMain.removeListener('post-game-review-window-closed', onClosedWithoutSubmit);
+    };
+
+    const resolveAndClose = (reviewText) => {
+      cleanup();
+      if (reviewWindow && !reviewWindow.isDestroyed()) {
+        reviewWindow.close();
+      }
+      reviewWindow = null;
+      resolve(reviewText || '');
+    };
+
+    const onSubmitted = (event, reviewText) => {
+      resolveAndClose(reviewText);
+    };
+
+    const onClosedWithoutSubmit = () => {
+      resolveAndClose('');
+    };
+
+    ipcMain.once('post-game-review-submitted', onSubmitted);
+    ipcMain.once('post-game-review-window-closed', onClosedWithoutSubmit);
+
+    reviewWindow.on('closed', () => {
+      cleanup();
+      reviewWindow = null;
+      resolve('');
+    });
+  });
 }
 
 function createUsernamePrompt() {
@@ -1099,7 +1210,12 @@ function registerShortcuts() {
     if (isUploading) return;
     isUploading = true;
     try {
-      createLoadingWindow();
+      if (appConfig.enablePostGameReview) {
+        const reviewText = await createPostGameReviewWindow();
+        sessionMetadata.setPostGameReview(reviewText);
+      } else {
+        createLoadingWindow();
+      }
       await stopFFMpegRecording();
     } catch (err) {
       console.error('Error during FFMPEG shutdown:', err);
@@ -1144,6 +1260,7 @@ async function startSession() {
   sessionMetadata.setTitle('');
   sessionMetadata.setVideoStartTimestamp(null);
   sessionMetadata.setFileTimestamp(sessionMetadata.getFormattedTimestamp());
+  sessionMetadata.setPostGameReview('');
 
   registerShortcuts();
   createStartWindow();
@@ -1327,6 +1444,20 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('delete-local-session', async (event, { username, fileTimestamp }) => {
     await deleteLocalSession(username, fileTimestamp);
+    return { success: true };
+  });
+  ipcMain.handle('update-local-session-review', async (event, { username, fileTimestamp, review }) => {
+    await updateLocalSessionReview(username, fileTimestamp, review);
+    return { success: true };
+  });
+  ipcMain.handle('update-s3-session-review', async (event, { username, fileTimestamp, review }) => {
+    if (!awsManager) {
+      throw new Error('AWS Manager not initialized');
+    }
+    if (!username || !fileTimestamp) {
+      throw new Error('Username and fileTimestamp are required to update S3 session review.');
+    }
+    await awsManager.updateSessionReview(username, fileTimestamp, review || '');
     return { success: true };
   });
   ipcMain.handle('download-local-session', async (event, { username, fileTimestamp }) => {
