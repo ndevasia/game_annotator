@@ -188,9 +188,13 @@ class AWSManager {
           sessions.push({
             title: metadataObj.title || `Session`,
             videoStartTimestamp: metadataObj.videoStartTimestamp || parseTimestampFromFilename(base),
+            postGameReview: metadataObj.postGameReview || '',
+            postGameReviewSavedAt: metadataObj.postGameReviewSavedAt || null,
+            postGameReviewLastEditedAt: metadataObj.postGameReviewLastEditedAt || null,
             videoUrl,
             annotationUrl, // null if no annotation
             metadataUrl,
+            username,
             fileTimestamp: base,
           });
 
@@ -414,6 +418,50 @@ async _safeGetSignedUrl(key) {
         console.error('❌ Error saving annotation to S3:', err);
     }
     }
+
+  async updateSessionReview(username, fileTimestamp, review) {
+    const key = `${username}/metadata/${fileTimestamp}.json`;
+    let metadataObj = {
+      username,
+      title: 'Session',
+      fileTimestamp,
+      videoStartTimestamp: Date.now(),
+    };
+
+    try {
+      const existing = await this.s3.getObject({
+        Bucket: this.bucket,
+        Key: key,
+      }).promise();
+      const parsed = JSON.parse(existing.Body.toString('utf8'));
+      if (parsed && typeof parsed === 'object') {
+        metadataObj = { ...metadataObj, ...parsed };
+      }
+    } catch (err) {
+      if (err.code !== 'NoSuchKey') {
+        throw err;
+      }
+    }
+
+    metadataObj.postGameReview = review || '';
+    if (metadataObj.postGameReview) {
+      const now = Date.now();
+      if (!metadataObj.postGameReviewSavedAt) {
+        metadataObj.postGameReviewSavedAt = now;
+      }
+      metadataObj.postGameReviewLastEditedAt = now;
+    } else {
+      metadataObj.postGameReviewSavedAt = null;
+      metadataObj.postGameReviewLastEditedAt = null;
+    }
+
+    await this.s3.putObject({
+      Bucket: this.bucket,
+      Key: key,
+      Body: JSON.stringify(metadataObj, null, 2),
+      ContentType: 'application/json',
+    }).promise();
+  }
 }
 
 module.exports = AWSManager;

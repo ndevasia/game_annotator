@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Post-Game Review</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(180deg, #0d0221, #1a1a40, #2e0249);
+      color: #ffffff;
+      font-family: "Share Tech Mono", monospace;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+
+    .panel {
+      width: min(680px, 95vw);
+      background: rgba(8, 10, 32, 0.92);
+      border: 2px solid rgba(0, 255, 255, 0.55);
+      border-radius: 14px;
+      box-shadow: 0 0 25px rgba(0, 255, 255, 0.2);
+      padding: 20px;
+    }
+
+    h2 {
+      margin: 0 0 10px 0;
+      color: #00ffff;
+      font-weight: normal;
+      text-shadow: 0 0 6px #00ffff;
+    }
+
+    p {
+      margin: 0 0 14px 0;
+      color: #cde6f5;
+      line-height: 1.4;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 180px;
+      resize: vertical;
+      border: 1px solid rgba(0, 255, 255, 0.7);
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.6);
+      color: #ffffff;
+      padding: 10px;
+      box-sizing: border-box;
+      font-family: inherit;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .actions {
+      margin-top: 14px;
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    button {
+      padding: 8px 14px;
+      border-radius: 6px;
+      border: 1px solid #00ffff;
+      background: rgba(0, 0, 0, 0.5);
+      color: #00ffff;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    button.primary {
+      border-color: #ff00ff;
+      color: #ff00ff;
+    }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <h2>Post-Game Review</h2>
+    <p>Summarize the session in one paragraph. This review will be saved with the video and notes.</p>
+    <textarea id="review-input" placeholder="What went well? What should improve next time?"></textarea>
+    <div class="actions">
+      <button type="button" onclick="skipReview()">Skip</button>
+      <button type="button" class="primary" onclick="saveReview()">Save Review</button>
+    </div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+    const reviewInput = document.getElementById('review-input');
+
+    function saveReview() {
+      const review = reviewInput.value.trim();
+      ipcRenderer.send('post-game-review-submitted', review);
+    }
+
+    function skipReview() {
+      ipcRenderer.send('post-game-review-submitted', '');
+    }
+
+    reviewInput.addEventListener('keydown', (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'enter') {
+        event.preventDefault();
+        saveReview();
+      }
+    });
+
+    window.addEventListener('beforeunload', () => {
+      ipcRenderer.send('post-game-review-window-closed');
+    });
+
+    window.addEventListener('DOMContentLoaded', () => {
+      reviewInput.focus();
+    });
+  </script>
+</body>
+</html>
