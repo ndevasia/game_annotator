@@ -127,8 +127,14 @@ async function saveAnnotationLocally(annotation) {
   annotations.push(annotation);
   await fs.promises.writeFile(paths.annotationsPath, JSON.stringify(annotations, null, 2), 'utf8');
 
-  // Send annotation to recent notes overlay if enabled and visible
-  if (appConfig.showRecentNotesOverlay && recentNotesWindow && recentNotesWindow.isVisible()) {
+  // Send annotation to recent notes overlay whenever it exists, even if hidden.
+  if (
+    appConfig.showRecentNotesOverlay &&
+    recentNotesWindow &&
+    !recentNotesWindow.isDestroyed() &&
+    recentNotesWindow.webContents &&
+    !recentNotesWindow.webContents.isDestroyed()
+  ) {
     recentNotesWindow.webContents.send('update-recent-notes', annotation);
   }
 }
@@ -226,6 +232,8 @@ async function listLocalSessions(username) {
       }
     }
 
+    const isActiveRecording = Boolean(ffmpegProcess) && fileTimestamp === sessionMetadata.getFileTimestamp();
+
     sessions.push({
       title: metadataObj.title || 'Session',
       videoStartTimestamp: metadataObj.videoStartTimestamp || parseSessionTimestamp(fileTimestamp),
@@ -235,7 +243,8 @@ async function listLocalSessions(username) {
       hasVideo,
       hasMetadata,
       hasAnnotations,
-      isInProgress: hasMetadata && !hasVideo,
+      // A session is only "live" if it matches the currently active recorder output.
+      isInProgress: isActiveRecording && hasMetadata && !hasVideo,
       username,
       fileTimestamp,
     });
@@ -349,7 +358,7 @@ function createUsernamePrompt() {
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({
-    width: 800,
+    width: 900,
     height: 600,
     webPreferences: {
       nodeIntegration: true,
@@ -441,7 +450,10 @@ function createEmojiWindow() {
 }
 
 function createNoteWindow() {
-  if (noteWindow) return;
+  if (noteWindow && !noteWindow.isDestroyed()) return;
+  if (noteWindow && noteWindow.isDestroyed()) {
+    noteWindow = null;
+  }
 
   noteWindow = new BrowserWindow({
     width: 400,
@@ -505,7 +517,10 @@ function createStartWindow() {
 }
 
 function createRecentNotesWindow() {
-  if (recentNotesWindow) return;
+  if (recentNotesWindow && !recentNotesWindow.isDestroyed()) return;
+  if (recentNotesWindow && recentNotesWindow.isDestroyed()) {
+    recentNotesWindow = null;
+  }
 
   // Calculate position for bottom-right corner
   const primaryDisplay = screen.getPrimaryDisplay();
@@ -1024,6 +1039,10 @@ function registerShortcuts() {
 
   globalShortcut.register(hotkeyConfig.annotationWindow || 'CommandOrControl+Shift+N', () => {
     focusedWindow = os.getFocusedWindow();
+    if (!noteWindow || noteWindow.isDestroyed()) {
+      noteWindow = null;
+      createNoteWindow();
+    }
     if (noteWindow && !noteWindow.isVisible()) {
       noteWindow.setFocusable(true);
       noteWindow.setIgnoreMouseEvents(false);
@@ -1088,10 +1107,18 @@ function registerShortcuts() {
       closeLoadingWindow();
     }
     if (noteWindow) {
-      noteWindow.close();
+      const existingNoteWindow = noteWindow;
+      noteWindow = null;
+      if (!existingNoteWindow.isDestroyed()) {
+        existingNoteWindow.close();
+      }
     }
     if (recentNotesWindow) {
-      recentNotesWindow.close();
+      const existingRecentNotesWindow = recentNotesWindow;
+      recentNotesWindow = null;
+      if (!existingRecentNotesWindow.isDestroyed()) {
+        existingRecentNotesWindow.close();
+      }
     }
     closeAllIndexWindows();
     createMainWindow();
