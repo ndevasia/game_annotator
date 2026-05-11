@@ -103,6 +103,13 @@
         <small>When enabled, displays the most recent annotations in a transparent overlay during recording.</small>
       </label>
     </div>
+    <div class="settings-row">
+      <input id="enable-post-game-review" type="checkbox">
+      <label for="enable-post-game-review" class="settings-copy">
+        <strong>Enable post-game review prompt</strong>
+        <small>When enabled, ending a recording opens a review text window instead of the loading spinner so you can add a summary paragraph.</small>
+      </label>
+    </div>
     <div class="settings-field" style="margin-left: 32px; margin-top: 12px;">
       <label for="recent-notes-count" style="color: #ffffff;"><strong>Number of notes to display:</strong></label>
       <input id="recent-notes-count" type="number" min="1" max="10" style="padding: 8px 10px; border: 1px solid #00ffff; border-radius: 4px; background: rgba(0, 0, 0, 0.8); color: #00ffff; font-family: 'Share Tech Mono', monospace; width: 100px;">
@@ -174,6 +181,7 @@
     const recordAllDisplaysCheckbox = document.getElementById('record-all-displays');
     const localOnlyStorageCheckbox = document.getElementById('local-only-storage');
     const showRecentNotesOverlayCheckbox = document.getElementById('show-recent-notes-overlay');
+    const enablePostGameReviewCheckbox = document.getElementById('enable-post-game-review');
     const recentNotesCountInput = document.getElementById('recent-notes-count');
     const displaySelect = document.getElementById('display-select');
     const displayHelp = document.getElementById('display-help');
@@ -242,6 +250,7 @@
         recordAllDisplaysCheckbox.checked = settings.recordAllDisplays !== false;
         localOnlyStorageCheckbox.checked = settings.localOnlyStorage === true;
         showRecentNotesOverlayCheckbox.checked = settings.showRecentNotesOverlay !== false;
+        enablePostGameReviewCheckbox.checked = settings.enablePostGameReview === true;
         recentNotesCountInput.value = settings.recentNotesCount || 3;
         renderDisplayOptions(displays, settings.selectedDisplayId);
         updateDisplayFieldState();
@@ -273,6 +282,7 @@
         selectedDisplayId: displaySelect.value || null,
         localOnlyStorage: localOnlyStorageCheckbox.checked,
         showRecentNotesOverlay: showRecentNotesOverlayCheckbox.checked,
+        enablePostGameReview: enablePostGameReviewCheckbox.checked,
         recentNotesCount: count,
         hotkeys: {
           annotationWindow: hotkeyInputs.annotationWindow.value,

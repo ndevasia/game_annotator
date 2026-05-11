@@ -7,6 +7,9 @@ class SessionMetadata {
     this.username = username;
     this.fileTimestamp = fileTimestamp || this.getFormattedTimestamp();
     this.videoStartTimestamp = videoStartTimestamp;
+    this.postGameReview = '';
+    this.postGameReviewSavedAt = null;
+    this.postGameReviewLastEditedAt = null;
 
     // Try to load username from config.json if not provided
     if (this.username=='') {
@@ -53,6 +56,21 @@ class SessionMetadata {
     this.videoStartTimestamp = timestamp;
   }
 
+  setPostGameReview(review) {
+    this.postGameReview = review || '';
+    if (!this.postGameReview) {
+      this.postGameReviewSavedAt = null;
+      this.postGameReviewLastEditedAt = null;
+      return;
+    }
+
+    const now = Date.now();
+    if (!this.postGameReviewSavedAt) {
+      this.postGameReviewSavedAt = now;
+    }
+    this.postGameReviewLastEditedAt = now;
+  }
+
   // Getters
   getTitle() {
     return this.title;
@@ -70,12 +88,27 @@ class SessionMetadata {
     return this.videoStartTimestamp;
   }
 
+  getPostGameReview() {
+    return this.postGameReview;
+  }
+
+  getPostGameReviewSavedAt() {
+    return this.postGameReviewSavedAt;
+  }
+
+  getPostGameReviewLastEditedAt() {
+    return this.postGameReviewLastEditedAt;
+  }
+
   toJSON() {
     return {
       username: this.username,
       title: this.title,
       fileTimestamp: this.fileTimestamp,
       videoStartTimestamp: this.videoStartTimestamp,
+      postGameReview: this.postGameReview,
+      postGameReviewSavedAt: this.postGameReviewSavedAt,
+      postGameReviewLastEditedAt: this.postGameReviewLastEditedAt,
     };
   }
 }

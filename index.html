@@ -263,6 +263,88 @@
     .annotation.no-video:hover {
       transform: none;
     }
+
+    .session-review {
+      max-width: 700px;
+      margin: 8px 0 12px 0;
+      border: 1px solid rgba(0, 255, 255, 0.35);
+      border-radius: 8px;
+      background: linear-gradient(135deg, rgba(0, 255, 255, 0.08), rgba(0, 0, 0, 0.35));
+      padding: 10px 12px;
+      color: #d9f7ff;
+      line-height: 1.45;
+    }
+
+    .session-review strong {
+      display: block;
+      color: #00ffff;
+      margin-bottom: 4px;
+      font-family: 'Share Tech Mono', monospace;
+      font-weight: normal;
+    }
+
+    .session-review p {
+      margin: 0;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .session-review-meta {
+      margin-top: 6px;
+      color: #9fe9ff;
+      font-size: 0.78rem;
+      font-family: 'Share Tech Mono', monospace;
+      opacity: 0.9;
+    }
+
+    .review-editor-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(0, 0, 0, 0.6);
+    }
+
+    .review-editor-dialog {
+      width: min(720px, 95vw);
+      background: rgba(8, 10, 32, 0.95);
+      border: 1px solid rgba(0, 255, 255, 0.55);
+      border-radius: 10px;
+      box-shadow: 0 0 30px rgba(0, 255, 255, 0.25);
+      padding: 16px;
+    }
+
+    .review-editor-dialog h3 {
+      margin: 0 0 10px 0;
+    }
+
+    .review-editor-dialog textarea {
+      width: 100%;
+      min-height: 170px;
+      resize: vertical;
+      border-radius: 8px;
+      border: 1px solid rgba(0, 255, 255, 0.6);
+      background: rgba(0, 0, 0, 0.5);
+      color: #ffffff;
+      box-sizing: border-box;
+      padding: 10px;
+      font-family: 'Share Tech Mono', monospace;
+      line-height: 1.45;
+    }
+
+    .review-editor-actions {
+      margin-top: 12px;
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    .review-editor-actions button {
+      white-space: nowrap;
+    }
   </style>
 </head>
 <body>
@@ -291,6 +373,17 @@
     Back to Home Screen
   </button>
 
+  <div id="review-editor-overlay" class="review-editor-overlay" role="dialog" aria-modal="true" aria-labelledby="review-editor-title">
+    <div class="review-editor-dialog">
+      <h3 id="review-editor-title">Edit post-game review</h3>
+      <textarea id="review-editor-input" placeholder="Summarize what happened in this session..."></textarea>
+      <div class="review-editor-actions">
+        <button id="review-editor-cancel" type="button">Cancel</button>
+        <button id="review-editor-save" type="button">Save Review</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     const fs = require('fs');
     const { ipcRenderer } = require('electron');
@@ -300,11 +393,16 @@
     const loadMoreBtn = document.getElementById('load-more');
     const loader = document.getElementById('loader');
     const backBtn = document.getElementById('back-home');
+    const reviewEditorOverlay = document.getElementById('review-editor-overlay');
+    const reviewEditorInput = document.getElementById('review-editor-input');
+    const reviewEditorCancelBtn = document.getElementById('review-editor-cancel');
+    const reviewEditorSaveBtn = document.getElementById('review-editor-save');
 
     let client;
     let allSessions = [];
     let visibleCount = 0;
     let activeUsername = null;
+    let isReviewModeEnabled = false;
     let liveRefreshTimer = null;
     const liveSessionViews = new Map();
     const PAGE_SIZE = 5;
@@ -347,10 +445,13 @@
 
       try {
         await client.init();
-        const [s3Sessions, localSessions] = await Promise.all([
+        const [s3Sessions, localSessions, settings] = await Promise.all([
           client.loadSessionsFromS3(username),
           ipcRenderer.invoke('get-local-sessions', username),
+          ipcRenderer.invoke('get-settings'),
         ]);
+
+        isReviewModeEnabled = Boolean(settings && settings.enablePostGameReview);
 
         const normalizedS3Sessions = s3Sessions.map((session) => ({
           ...session,
@@ -427,6 +528,52 @@
       };
     }
 
+    function openReviewEditor(initialText) {
+      return new Promise((resolve) => {
+        reviewEditorInput.value = initialText || '';
+        reviewEditorOverlay.style.display = 'flex';
+
+        const finish = (value) => {
+          cleanup();
+          reviewEditorOverlay.style.display = 'none';
+          resolve(value);
+        };
+
+        const onSave = () => finish(reviewEditorInput.value);
+        const onCancel = () => finish(null);
+        const onOverlayClick = (event) => {
+          if (event.target === reviewEditorOverlay) {
+            onCancel();
+          }
+        };
+        const onKeyDown = (event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            onCancel();
+            return;
+          }
+
+          if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'enter') {
+            event.preventDefault();
+            onSave();
+          }
+        };
+
+        const cleanup = () => {
+          reviewEditorSaveBtn.removeEventListener('click', onSave);
+          reviewEditorCancelBtn.removeEventListener('click', onCancel);
+          reviewEditorOverlay.removeEventListener('click', onOverlayClick);
+          reviewEditorInput.removeEventListener('keydown', onKeyDown);
+        };
+
+        reviewEditorSaveBtn.addEventListener('click', onSave);
+        reviewEditorCancelBtn.addEventListener('click', onCancel);
+        reviewEditorOverlay.addEventListener('click', onOverlayClick);
+        reviewEditorInput.addEventListener('keydown', onKeyDown);
+        reviewEditorInput.focus();
+      });
+    }
+
     function loadAnnotations(session) {
       if (session.source === 'local') {
         if (!session.annotationPath || !fs.existsSync(session.annotationPath)) return [];
@@ -499,6 +646,39 @@
         safeOffset,
         timeLabel: `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`,
       };
+    }
+
+    function formatReviewTimestamp(session) {
+      const hasReview = Boolean(session.postGameReview && session.postGameReview.trim());
+      if (!hasReview) {
+        return '';
+      }
+
+      const editedAt = session.postGameReviewLastEditedAt;
+      const savedAt = session.postGameReviewSavedAt || editedAt || session.videoStartTimestamp;
+
+      const editedDate = editedAt ? new Date(editedAt) : null;
+      const savedDate = savedAt ? new Date(savedAt) : null;
+
+      const hasEditedDate = editedDate && !Number.isNaN(editedDate.getTime());
+      const hasSavedDate = savedDate && !Number.isNaN(savedDate.getTime());
+
+      if (hasEditedDate && hasSavedDate) {
+        if (editedDate.getTime() > savedDate.getTime()) {
+          return `Last edited: ${editedDate.toLocaleString()}`;
+        }
+        return `Saved: ${savedDate.toLocaleString()}`;
+      }
+
+      if (hasEditedDate) {
+        return `Saved: ${editedDate.toLocaleString()}`;
+      }
+
+      if (hasSavedDate) {
+        return `Saved: ${savedDate.toLocaleString()}`;
+      }
+
+      return '';
     }
 
     function renderAnnotations(session, annotationDiv, loadedAnnotations, mediaEl, knownTimestamps, highlightNew = false) {
@@ -741,6 +921,144 @@
       annotationDiv.innerHTML = '<em>Loading annotations...</em>';
       const knownTimestamps = new Set();
 
+      const reviewText = typeof session.postGameReview === 'string' ? session.postGameReview.trim() : '';
+      const reviewSavedAt = session.postGameReviewSavedAt || null;
+      const reviewLastEditedAt = session.postGameReviewLastEditedAt || null;
+      let reviewDiv = null;
+      if (reviewText) {
+        reviewDiv = document.createElement('div');
+        reviewDiv.className = 'session-review';
+        const reviewTitle = document.createElement('strong');
+        reviewTitle.textContent = 'Post-game review';
+        const reviewBody = document.createElement('p');
+        reviewBody.textContent = reviewText;
+        const reviewMeta = document.createElement('div');
+        reviewMeta.className = 'session-review-meta';
+        reviewMeta.textContent = formatReviewTimestamp({
+          postGameReview: reviewText,
+          postGameReviewSavedAt: reviewSavedAt,
+          postGameReviewLastEditedAt: reviewLastEditedAt,
+          videoStartTimestamp: session.videoStartTimestamp,
+        });
+        reviewDiv.appendChild(reviewTitle);
+        reviewDiv.appendChild(reviewBody);
+        reviewDiv.appendChild(reviewMeta);
+      }
+
+      const editReviewBtn = document.createElement('button');
+      editReviewBtn.textContent = 'Edit Review';
+      styleActionButton(editReviewBtn, '#8cffc6', true);
+
+      const canEditReview = isReviewModeEnabled && !session.isInProgress;
+      if (!canEditReview) {
+        editReviewBtn.disabled = true;
+        editReviewBtn.style.opacity = '0.5';
+        editReviewBtn.style.cursor = 'not-allowed';
+        editReviewBtn.title = isReviewModeEnabled
+          ? 'Review editing is disabled during live sessions.'
+          : 'Enable post-game review in Settings to edit reviews.';
+      }
+
+      const upsertReviewUi = (nextText, nextSavedAt, nextLastEditedAt) => {
+        const trimmed = (nextText || '').trim();
+        if (!trimmed) {
+          if (reviewDiv) {
+            reviewDiv.remove();
+            reviewDiv = null;
+          }
+          return;
+        }
+
+        if (!reviewDiv) {
+          reviewDiv = document.createElement('div');
+          reviewDiv.className = 'session-review';
+          const reviewTitle = document.createElement('strong');
+          reviewTitle.textContent = 'Post-game review';
+          const reviewBody = document.createElement('p');
+          reviewBody.textContent = trimmed;
+          const reviewMeta = document.createElement('div');
+          reviewMeta.className = 'session-review-meta';
+          reviewMeta.textContent = formatReviewTimestamp({
+            postGameReview: trimmed,
+            postGameReviewSavedAt: nextSavedAt,
+            postGameReviewLastEditedAt: nextLastEditedAt,
+            videoStartTimestamp: session.videoStartTimestamp,
+          });
+          reviewDiv.appendChild(reviewTitle);
+          reviewDiv.appendChild(reviewBody);
+          reviewDiv.appendChild(reviewMeta);
+          sessionDiv.insertBefore(reviewDiv, annotationDiv);
+          return;
+        }
+
+        const body = reviewDiv.querySelector('p');
+        if (body) {
+          body.textContent = trimmed;
+        }
+
+        const meta = reviewDiv.querySelector('.session-review-meta');
+        if (meta) {
+          meta.textContent = formatReviewTimestamp({
+            postGameReview: trimmed,
+            postGameReviewSavedAt: nextSavedAt,
+            postGameReviewLastEditedAt: nextLastEditedAt,
+            videoStartTimestamp: session.videoStartTimestamp,
+          });
+        }
+      };
+
+      editReviewBtn.onclick = async () => {
+        const currentReview = typeof session.postGameReview === 'string' ? session.postGameReview : '';
+        const edited = await openReviewEditor(currentReview);
+        if (edited === null) {
+          return;
+        }
+
+        const nextReview = edited.trim();
+        const originalLabel = editReviewBtn.textContent;
+        editReviewBtn.disabled = true;
+        editReviewBtn.textContent = 'Saving...';
+
+        try {
+          if (session.source === 'local') {
+            await ipcRenderer.invoke('update-local-session-review', {
+              username: session.username || activeUsername,
+              fileTimestamp: session.fileTimestamp,
+              review: nextReview,
+            });
+          } else {
+            await ipcRenderer.invoke('update-s3-session-review', {
+              username: session.username || activeUsername,
+              fileTimestamp: session.fileTimestamp,
+              review: nextReview,
+            });
+          }
+
+          session.postGameReview = nextReview;
+          if (nextReview) {
+            const now = Date.now();
+            if (!session.postGameReviewSavedAt) {
+              session.postGameReviewSavedAt = now;
+            }
+            session.postGameReviewLastEditedAt = now;
+          } else {
+            session.postGameReviewSavedAt = null;
+            session.postGameReviewLastEditedAt = null;
+          }
+          upsertReviewUi(nextReview, session.postGameReviewSavedAt, session.postGameReviewLastEditedAt);
+        } catch (err) {
+          console.error('Failed to update review:', err);
+          alert('Failed to save post-game review.');
+        } finally {
+          editReviewBtn.disabled = !canEditReview;
+          editReviewBtn.textContent = originalLabel;
+        }
+      };
+
+      if (!(session.source === 'local' && session.isInProgress)) {
+        buttonContainer.appendChild(editReviewBtn);
+      }
+
       const loadedAnnotations = await Promise.resolve(loadAnnotations(session));
 
       renderAnnotations(session, annotationDiv, loadedAnnotations, hasVideo ? mediaEl : null, knownTimestamps, false);
@@ -761,6 +1079,9 @@
 
       sessionDiv.appendChild(heading);
       sessionDiv.appendChild(videoButtonsContainer);
+      if (reviewDiv) {
+        sessionDiv.appendChild(reviewDiv);
+      }
       sessionDiv.appendChild(annotationDiv);
       if (footerDiv) {
         sessionDiv.appendChild(footerDiv);
