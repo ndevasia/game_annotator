@@ -9,7 +9,7 @@
     "dist": "electron-builder"
   },
   "devDependencies": {
-    "electron": "^25.2.0",
+    "electron": "^25.9.8",
     "electron-builder": "^26.0.12"
   },
   "dependencies": {
@@ -21,7 +21,9 @@
     "appId": "com.example.gameannotator",
     "productName": "GameAnnotator",
     "files": [
-      "**/*"
+      "**/*",
+      "!s3_data/**",
+      "!**/s3_data/**"
     ],
     "mac": {
       "category": "public.app-category.productivity",
