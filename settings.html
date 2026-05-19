@@ -103,12 +103,29 @@
         <small>When enabled, displays the most recent annotations in a transparent overlay during recording.</small>
       </label>
     </div>
-    <div class="settings-row">
-      <input id="enable-post-game-review" type="checkbox">
-      <label for="enable-post-game-review" class="settings-copy">
-        <strong>Enable post-game review prompt</strong>
-        <small>When enabled, ending a recording opens a review text window instead of the loading spinner so you can add a summary paragraph.</small>
-      </label>
+    <div class="settings-field" style="margin-top: 18px; border-top: 1px solid rgba(0, 255, 255, 0.3); padding-top: 18px;">
+      <strong style="color: #00ffff; display: block; margin-bottom: 12px;">Post-Game Review</strong>
+      <div class="settings-row" style="margin: 12px 0; gap: 8px;">
+        <input id="review-mode-none" type="radio" name="review-mode" value="none" style="margin-top: 2px;">
+        <label for="review-mode-none" class="settings-copy" style="gap: 0;">
+          <strong>Disabled</strong>
+          <small>Skip review and proceed straight to home after recording ends.</small>
+        </label>
+      </div>
+      <div class="settings-row" style="margin: 12px 0; gap: 8px;">
+        <input id="review-mode-ai" type="radio" name="review-mode" value="ai" style="margin-top: 2px;">
+        <label for="review-mode-ai" class="settings-copy" style="gap: 0;">
+          <strong>AI Review (Gemini)</strong>
+          <small>Chat-based feedback using AI. Requires GEMINI_API_KEY in .env</small>
+        </label>
+      </div>
+      <div class="settings-row" style="margin: 12px 0; gap: 8px;">
+        <input id="review-mode-text" type="radio" name="review-mode" value="text" style="margin-top: 2px;">
+        <label for="review-mode-text" class="settings-copy" style="gap: 0;">
+          <strong>Regular Review</strong>
+          <small>Open a text box to manually write a summary of the session.</small>
+        </label>
+      </div>
     </div>
     <div class="settings-field" style="margin-left: 32px; margin-top: 12px;">
       <label for="recent-notes-count" style="color: #ffffff;"><strong>Number of notes to display:</strong></label>
@@ -181,10 +198,16 @@
     const recordAllDisplaysCheckbox = document.getElementById('record-all-displays');
     const localOnlyStorageCheckbox = document.getElementById('local-only-storage');
     const showRecentNotesOverlayCheckbox = document.getElementById('show-recent-notes-overlay');
-    const enablePostGameReviewCheckbox = document.getElementById('enable-post-game-review');
     const recentNotesCountInput = document.getElementById('recent-notes-count');
     const displaySelect = document.getElementById('display-select');
     const displayHelp = document.getElementById('display-help');
+
+    // Review mode radio buttons
+    const reviewModeRadios = {
+      none: document.getElementById('review-mode-none'),
+      ai: document.getElementById('review-mode-ai'),
+      text: document.getElementById('review-mode-text'),
+    };
 
     // Hotkey input elements
     const hotkeyInputs = {
@@ -250,8 +273,12 @@
         recordAllDisplaysCheckbox.checked = settings.recordAllDisplays !== false;
         localOnlyStorageCheckbox.checked = settings.localOnlyStorage === true;
         showRecentNotesOverlayCheckbox.checked = settings.showRecentNotesOverlay !== false;
-        enablePostGameReviewCheckbox.checked = settings.enablePostGameReview === true;
         recentNotesCountInput.value = settings.recentNotesCount || 3;
+        
+        // Set review mode radio button
+        const reviewMode = settings.reviewMode || 'none';
+        reviewModeRadios[reviewMode].checked = true;
+        
         renderDisplayOptions(displays, settings.selectedDisplayId);
         updateDisplayFieldState();
 
@@ -277,12 +304,14 @@
 
     async function saveSettings() {
       const count = Math.max(1, Math.min(10, parseInt(recentNotesCountInput.value) || 3));
+      const reviewMode = Array.from(document.querySelectorAll('input[name="review-mode"]')).find(r => r.checked)?.value || 'none';
+      
       await ipcRenderer.invoke('save-settings', {
         recordAllDisplays: recordAllDisplaysCheckbox.checked,
         selectedDisplayId: displaySelect.value || null,
         localOnlyStorage: localOnlyStorageCheckbox.checked,
         showRecentNotesOverlay: showRecentNotesOverlayCheckbox.checked,
-        enablePostGameReview: enablePostGameReviewCheckbox.checked,
+        reviewMode: reviewMode,
         recentNotesCount: count,
         hotkeys: {
           annotationWindow: hotkeyInputs.annotationWindow.value,

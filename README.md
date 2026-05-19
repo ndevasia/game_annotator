@@ -28,11 +28,15 @@ The application requires specific environment variables to interact with AWS. Be
 Create a file named `.env` and populate it with your credentials:
 
 ```env
+# AWS Configuration
 AWS_ACCESS_KEY_ID=[enter your own]
 AWS_SECRET_ACCESS_KEY=[enter your own]
 AWS_REGION=us-west-2
 AWS_BUCKET_NAME=game-annotator
 AWS_ROLE_ARN=arn:aws:iam::378382627972:role/gameannotator
+
+# Gemini API Configuration (for Post-Game Review Chatbot)
+GEMINI_API_KEY=[get from https://makersuite.google.com/app/apikey]
 ```
 
 ---

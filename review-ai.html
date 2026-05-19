@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>AI Review - Post-Game Chat</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="review-page">
+  <div class="review-panel">
+    <h2 id="panel-title">Post-Game Review</h2>
+
+    <!-- Chatbot interface -->
+    <div id="chatbot-ui" class="chatbot-container">
+      <div class="messages" id="messages">
+        <div class="message system">
+          <span class="spinner"></span> Loading your personalized questions...
+        </div>
+      </div>
+      <div class="input-area" id="input-area">
+        <input type="text" id="user-input" class="review-input" placeholder="Your response..." />
+        <button type="button" id="send-btn" class="review-btn" onclick="sendUserMessage()" disabled>Send</button>
+      </div>
+    </div>
+
+    <div class="button-group" id="button-group">
+      <button type="button" class="review-btn" id="skip-btn" onclick="skipReview()">Skip</button>
+      <button type="button" class="review-btn primary" id="complete-btn" onclick="completeReview()" disabled>Complete Review</button>
+    </div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+    let sessionData = null;
+    let conversationMessages = [];
+    let reviewComplete = false;
+    let isSendingMessage = false;
+    let currentQuestion = null;
+    let interviewComplete = false;
+    let isChatOnly = false;
+
+    // Listen for session data from main process
+    ipcRenderer.on('session-data', (event, data) => {
+      console.log('Received session data:', data);
+      sessionData = data;
+      isChatOnly = data.isChatOnly || false;
+
+      // Update UI based on mode
+      if (isChatOnly) {
+        document.getElementById('panel-title').textContent = 'Chat About This Session';
+        document.getElementById('skip-btn').style.display = 'none';
+        document.getElementById('complete-btn').textContent = 'Close';
+      }
+      
+      initializeChatbot();
+    });
+
+    function initializeChatbot() {
+      const messagesDiv = document.getElementById('messages');
+      messagesDiv.innerHTML = '<div class="message system"><span class="spinner"></span> Generating personalized question...</div>';
+      
+      ipcRenderer.send('generate-initial-questions', {
+        gameTitle: sessionData.gameTitle,
+        annotations: sessionData.annotations
+      });
+
+      ipcRenderer.once('initial-question-ready', (event, data) => {
+        if (data.error) {
+          console.error('Error generating question:', data.error);
+          showInitialErrorMessage(data.error);
+          return;
+        }
+
+        messagesDiv.innerHTML = '';
+        currentQuestion = data.question;
+        
+        if (!currentQuestion) {
+          showInitialErrorMessage('Could not generate first question');
+          return;
+        }
+
+        // Display the first question
+        const msg = document.createElement('div');
+        msg.className = 'message assistant';
+        msg.textContent = currentQuestion;
+        messagesDiv.appendChild(msg);
+        
+        // Store initial question in conversation
+        conversationMessages.push({
+          role: 'assistant',
+          text: currentQuestion
+        });
+
+        // Scroll to bottom
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        
+        // Enable input
+        document.getElementById('user-input').focus();
+        document.getElementById('send-btn').disabled = false;
+        document.getElementById('complete-btn').disabled = false;
+      });
+    }
+
+    function showInitialErrorMessage(errorMsg) {
+      const messagesDiv = document.getElementById('messages');
+      const msg = document.createElement('div');
+      msg.className = 'message error';
+      msg.textContent = `Error: ${errorMsg}. Please provide your feedback directly:`;
+      messagesDiv.innerHTML = '';
+      messagesDiv.appendChild(msg);
+    }
+
+    function sendUserMessage() {
+      if (isSendingMessage || !sessionData || interviewComplete) return;
+
+      const inputEl = document.getElementById('user-input');
+      const userText = inputEl.value.trim();
+
+      if (!userText) return;
+
+      isSendingMessage = true;
+      document.getElementById('send-btn').disabled = true;
+
+      // Add user message to display
+      const messagesDiv = document.getElementById('messages');
+      const userMsg = document.createElement('div');
+      userMsg.className = 'message user';
+      userMsg.textContent = userText;
+      messagesDiv.appendChild(userMsg);
+      conversationMessages.push({
+        role: 'user',
+        text: userText
+      });
+
+      inputEl.value = '';
+
+      // Add loading indicator
+      const loadingMsg = document.createElement('div');
+      loadingMsg.className = 'message loading';
+      loadingMsg.id = 'loading-msg';
+      loadingMsg.innerHTML = '<span class="spinner"></span> <span>Thinking...</span>';
+      messagesDiv.appendChild(loadingMsg);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+      // Send message to main process
+      ipcRenderer.send('send-chat-message', {
+        userMessage: userText,
+        gameTitle: sessionData.gameTitle
+      });
+
+      ipcRenderer.once('chat-message-received', (event, data) => {
+        isSendingMessage = false;
+
+        const loadingEl = document.getElementById('loading-msg');
+        if (loadingEl) {
+          loadingEl.remove();
+        }
+
+        if (data.error) {
+          const errorMsg = document.createElement('div');
+          errorMsg.className = 'message error';
+          errorMsg.textContent = `Error: ${data.error}`;
+          messagesDiv.appendChild(errorMsg);
+          document.getElementById('send-btn').disabled = false;
+        } else {
+          // Show acknowledgement
+          const ackMsg = document.createElement('div');
+          ackMsg.className = 'message assistant';
+          ackMsg.textContent = data.response;
+          messagesDiv.appendChild(ackMsg);
+          
+          // Store acknowledgement in conversation
+          conversationMessages.push({
+            role: 'assistant',
+            text: data.response
+          });
+
+          if (data.nextQuestion) {
+            // Show next question after a brief delay
+            currentQuestion = data.nextQuestion;
+            setTimeout(() => {
+              const nextMsg = document.createElement('div');
+              nextMsg.className = 'message assistant';
+              nextMsg.textContent = currentQuestion;
+              messagesDiv.appendChild(nextMsg);
+              
+              // Store question in conversation
+              conversationMessages.push({
+                role: 'assistant',
+                text: currentQuestion
+              });
+              
+              messagesDiv.scrollTop = messagesDiv.scrollHeight;
+              document.getElementById('user-input').focus();
+              document.getElementById('send-btn').disabled = false;
+            }, 400);
+          } else {
+            // Interview is complete
+            interviewComplete = true;
+            setTimeout(() => {
+              const closingMsg = document.createElement('div');
+              closingMsg.className = 'message assistant';
+              closingMsg.textContent = 'Thank you for sharing your feedback! I appreciate your insights.';
+              messagesDiv.appendChild(closingMsg);
+              
+              // Store closing message in conversation
+              conversationMessages.push({
+                role: 'assistant',
+                text: 'Thank you for sharing your feedback! I appreciate your insights.'
+              });
+              
+              messagesDiv.scrollTop = messagesDiv.scrollHeight;
+              document.getElementById('send-btn').disabled = true;
+              document.getElementById('user-input').disabled = true;
+              document.getElementById('user-input').placeholder = 'Review complete...';
+            }, 400);
+          }
+        }
+      });
+    }
+
+    function completeReview() {
+      if (isChatOnly) {
+        // Save chat transcript and close
+        saveAndClose();
+        return;
+      }
+
+      // Construct review from user responses
+      const userResponses = conversationMessages
+        .filter(m => m.role === 'user')
+        .map(m => m.text)
+        .join('\n\n');
+      const reviewText = userResponses || '';
+
+      reviewComplete = true;
+      ipcRenderer.send('post-game-review-submitted', reviewText);
+    }
+
+    function saveAndClose() {
+      // Send the conversation to main process before closing
+      console.log('Saving chat transcript...');
+      const transcript = conversationMessages.map(msg => ({
+        role: msg.role,
+        text: msg.text
+      }));
+      
+      ipcRenderer.send('save-session-chat-transcript', {
+        gameTitle: sessionData.gameTitle,
+        username: sessionData.username,
+        fileTimestamp: sessionData.fileTimestamp,
+        transcript: transcript
+      });
+      
+      reviewComplete = true;
+      // Small delay to ensure save completes before closing
+      setTimeout(() => {
+        ipcRenderer.send('post-game-review-window-closed');
+      }, 100);
+    }
+
+    function skipReview() {
+      reviewComplete = true;
+      ipcRenderer.send('post-game-review-submitted', '');
+    }
+
+    // Handle keyboard shortcuts
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('user-input').addEventListener('keydown', (event) => {
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'enter') {
+          event.preventDefault();
+          sendUserMessage();
+        }
+      });
+    });
+
+    // Handle window close
+    window.addEventListener('beforeunload', () => {
+      if (!reviewComplete) {
+        ipcRenderer.send('post-game-review-window-closed');
+      }
+    });
+
+    // Session data is sent automatically by main.js, just wait for it
+  </script>
+</body>
+</html>

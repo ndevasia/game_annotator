@@ -64,3 +64,229 @@ button {
   align-items: center;    /* center horizontally */
   width: 100%;
 }
+
+/* ===== Review Panel Styles ===== */
+body.review-page {
+  background: linear-gradient(180deg, #0d0221, #1a1a40, #2e0249);
+  border: none;
+  box-shadow: none;
+  text-shadow: none;
+  color: #ffffff;
+  font-family: "Share Tech Mono", monospace;
+}
+
+body.review-page::before {
+  content: none;
+}
+
+.review-panel {
+  width: min(900px, 95vw);
+  background: rgba(8, 10, 32, 0.92);
+  border: 2px solid rgba(0, 255, 255, 0.55);
+  border-radius: 14px;
+  box-shadow: 0 0 25px rgba(0, 255, 255, 0.2);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
+}
+
+.review-panel h2 {
+  margin: 0 0 10px 0;
+  color: #00ffff;
+  font-weight: normal;
+  text-shadow: 0 0 6px #00ffff;
+}
+
+.review-panel p {
+  margin: 0 0 14px 0;
+  color: #cde6f5;
+  line-height: 1.4;
+}
+
+/* Chatbot Container */
+.chatbot-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 300px;
+  max-height: 500px;
+  overflow: hidden;
+}
+
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  margin-bottom: 15px;
+  padding-right: 8px;
+}
+
+.messages::-webkit-scrollbar {
+  width: 6px;
+}
+
+.messages::-webkit-scrollbar-track {
+  background: rgba(0, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+.messages::-webkit-scrollbar-thumb {
+  background: rgba(0, 255, 255, 0.5);
+  border-radius: 3px;
+}
+
+.message {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  line-height: 1.4;
+  word-wrap: break-word;
+}
+
+.message.user {
+  background: rgba(255, 0, 255, 0.2);
+  border-left: 3px solid #ff00ff;
+  margin-left: 30px;
+}
+
+.message.assistant {
+  background: rgba(0, 255, 255, 0.15);
+  border-left: 3px solid #00ffff;
+  margin-right: 30px;
+  color: #cde6f5;
+}
+
+.message.system {
+  background: rgba(100, 50, 150, 0.2);
+  border-left: 3px solid #aa00ff;
+  margin-right: 30px;
+  color: #ddaaff;
+  font-size: 13px;
+}
+
+.message.error {
+  background: rgba(255, 0, 0, 0.2);
+  border-left: 3px solid #ff0000;
+  color: #ff6666;
+}
+
+.message.loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #00ffff;
+}
+
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(0, 255, 255, 0.3);
+  border-top-color: #00ffff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Input Area */
+.input-area {
+  display: flex;
+  gap: 10px;
+}
+
+.input-area.hidden {
+  display: none;
+}
+
+.review-input {
+  flex: 1;
+  border: 1px solid rgba(0, 255, 255, 0.7);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #ffffff;
+  padding: 10px;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.review-input::placeholder {
+  color: #666688;
+}
+
+.review-input:focus {
+  outline: none;
+  border-color: #ff00ff;
+  box-shadow: 0 0 8px rgba(255, 0, 255, 0.3);
+}
+
+/* Review Buttons */
+.button-group {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.review-btn {
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid #00ffff;
+  background: rgba(0, 0, 0, 0.5);
+  color: #00ffff;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.review-btn:hover:not(:disabled) {
+  border-color: #00ffff;
+  box-shadow: 0 0 8px rgba(0, 255, 255, 0.4);
+}
+
+.review-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.review-btn.primary {
+  border-color: #ff00ff;
+  color: #ff00ff;
+}
+
+.review-btn.primary:hover:not(:disabled) {
+  border-color: #ff00ff;
+  box-shadow: 0 0 8px rgba(255, 0, 255, 0.4);
+}
+
+/* Text Review Textarea */
+.review-textarea {
+  width: 100%;
+  min-height: 200px;
+  resize: vertical;
+  border: 1px solid rgba(0, 255, 255, 0.7);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #ffffff;
+  padding: 10px;
+  box-sizing: border-box;
+  font-family: "Share Tech Mono", monospace;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.review-textarea:focus {
+  outline: none;
+  border-color: #ff00ff;
+  box-shadow: 0 0 8px rgba(255, 0, 255, 0.3);
+}
+
+.review-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}

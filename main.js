@@ -1,15 +1,24 @@
 const { app, BrowserWindow, globalShortcut, ipcMain, dialog, screen } = require('electron');
+console.log('🚀 main.js starting to load...');
 const fs = require('fs');
 const { spawnSync } = require('child_process');
 const { spawnTracked, killAllChildren } = require("./backend/processManager.js");
 const isDebug = process.argv.includes('--debug');
 const path = require('path');
 const AWSManager = require('./backend/aws.js');
-const SessionMetadata = require('./backend/metadata.js')
+const SessionMetadata = require('./backend/metadata.js');
+const GeminiService = require('./backend/geminiService.js');
 const { readConfig, writeConfig } = require('./config.js');
 const sessionMetadata = new SessionMetadata();
 const { readUsername, writeUsername, submitUsername } = require('./username.js');
-const os = require('./os.js')
+const os = require('./os.js');
+
+let geminiService = null;
+try {
+  geminiService = new GeminiService();
+} catch (err) {
+  console.warn('⚠️ Gemini service not available:', err.message);
+}
 
 let awsManager = null;
 
@@ -42,7 +51,7 @@ let appConfig = {
   selectedDisplayId: null,
   localOnlyStorage: false,
   showRecentNotesOverlay: true,
-  enablePostGameReview: false,
+  reviewMode: 'none', // 'none', 'ai', or 'text'
   recentNotesCount: 3,
   hotkeys: {
     annotationWindow: 'CommandOrControl+Shift+N',
@@ -74,9 +83,11 @@ function getLocalSessionPaths(username, fileTimestamp) {
     videosDir: path.join(userRoot, 'videos'),
     metadataDir: path.join(userRoot, 'metadata'),
     annotationsDir: path.join(userRoot, 'annotations'),
+    chatsDir: path.join(userRoot, 'chats'),
     videoPath: path.join(userRoot, 'videos', `${fileTimestamp}.mkv`),
     metadataPath: path.join(userRoot, 'metadata', `${fileTimestamp}.json`),
     annotationsPath: path.join(userRoot, 'annotations', `${fileTimestamp}.json`),
+    chatPath: path.join(userRoot, 'chats', `${fileTimestamp}.json`),
   };
 }
 
@@ -86,6 +97,7 @@ async function ensureLocalSessionDirs(username) {
     fs.promises.mkdir(paths.videosDir, { recursive: true }),
     fs.promises.mkdir(paths.metadataDir, { recursive: true }),
     fs.promises.mkdir(paths.annotationsDir, { recursive: true }),
+    fs.promises.mkdir(paths.chatsDir, { recursive: true }),
   ]);
 }
 
@@ -150,6 +162,38 @@ async function ensureLocalAnnotationsFile() {
   const paths = getLocalSessionPaths(username, fileTimestamp);
   if (!fs.existsSync(paths.annotationsPath)) {
     await fs.promises.writeFile(paths.annotationsPath, JSON.stringify([], null, 2), 'utf8');
+  }
+}
+
+async function saveChatTranscript(username, fileTimestamp, transcript, gameTitle) {
+  try {
+    await ensureLocalSessionDirs(username);
+    const paths = getLocalSessionPaths(username, fileTimestamp);
+    
+    const chatData = {
+      gameTitle: gameTitle,
+      timestamp: Date.now(),
+      messages: transcript
+    };
+    
+    console.log('💾 Saving chat transcript:', { username, fileTimestamp, messageCount: transcript.length });
+    await fs.promises.writeFile(paths.chatPath, JSON.stringify(chatData, null, 2), 'utf8');
+    console.log('✅ Chat transcript saved to:', paths.chatPath);
+  } catch (err) {
+    console.error('❌ Error saving chat transcript:', err);
+  }
+}
+
+async function loadChatTranscript(username, fileTimestamp) {
+  try {
+    const paths = getLocalSessionPaths(username, fileTimestamp);
+    console.log('📖 Loading chat transcript from:', paths.chatPath);
+    const chatContent = await fs.promises.readFile(paths.chatPath, 'utf8');
+    console.log('✅ Chat transcript loaded successfully');
+    return JSON.parse(chatContent);
+  } catch (err) {
+    console.warn('⚠️ Chat file not found or error reading:', err.message);
+    return null;
   }
 }
 
@@ -376,8 +420,8 @@ function createPostGameReviewWindow() {
     }
 
     reviewWindow = new BrowserWindow({
-      width: 760,
-      height: 420,
+      width: 860,
+      height: 600,
       frame: false,
       transparent: true,
       alwaysOnTop: true,
@@ -390,10 +434,39 @@ function createPostGameReviewWindow() {
       }
     });
 
-    reviewWindow.loadFile('review.html');
+    // Load the appropriate review file based on review mode
+    const reviewFile = appConfig.reviewMode === 'ai' ? 'review-ai.html' : 'review-text.html';
+    reviewWindow.loadFile(reviewFile);
 
     reviewWindow.once('ready-to-show', () => {
       if (reviewWindow) {
+        // Send session metadata and annotations to renderer
+        try {
+          const paths = getLocalSessionPaths(sessionMetadata.getUsername(), sessionMetadata.getFileTimestamp());
+          let annotations = '';
+
+          if (fs.existsSync(paths.annotationsPath)) {
+            try {
+              const annotationsData = JSON.parse(fs.readFileSync(paths.annotationsPath, 'utf8'));
+              if (Array.isArray(annotationsData)) {
+                annotations = annotationsData.map(a => a.text || a).join(' | ');
+              }
+            } catch (err) {
+              console.warn('Could not read annotations:', err);
+            }
+          }
+
+          reviewWindow.webContents.send('session-data', {
+            gameTitle: sessionMetadata.getTitle(),
+            username: sessionMetadata.getUsername(),
+            annotations: annotations,
+            geminiAvailable: geminiService !== null,
+            reviewMode: appConfig.reviewMode
+          });
+        } catch (err) {
+          console.error('Error sending session data:', err);
+        }
+
         reviewWindow.show();
         reviewWindow.focus();
       }
@@ -402,10 +475,15 @@ function createPostGameReviewWindow() {
     const cleanup = () => {
       ipcMain.removeListener('post-game-review-submitted', onSubmitted);
       ipcMain.removeListener('post-game-review-window-closed', onClosedWithoutSubmit);
+      ipcMain.removeListener('generate-initial-questions', onGenerateQuestions);
+      ipcMain.removeListener('send-chat-message', onChatMessage);
     };
 
     const resolveAndClose = (reviewText) => {
       cleanup();
+      if (geminiService) {
+        geminiService.resetConversation();
+      }
       if (reviewWindow && !reviewWindow.isDestroyed()) {
         reviewWindow.close();
       }
@@ -421,14 +499,188 @@ function createPostGameReviewWindow() {
       resolveAndClose('');
     };
 
+    const onGenerateQuestions = async (event, { gameTitle, annotations }) => {
+      if (!geminiService) {
+        event.reply('initial-question-ready', {
+          error: 'Gemini service not available'
+        });
+        return;
+      }
+
+      try {
+        const question = await geminiService.initializeAndGetFirstQuestion(gameTitle, annotations);
+        event.reply('initial-question-ready', { question });
+      } catch (err) {
+        console.error('Error generating first question:', err);
+        event.reply('initial-question-ready', {
+          error: err.message
+        });
+      }
+    };
+
+    const onChatMessage = async (event, { userMessage, gameTitle }) => {
+      if (!geminiService) {
+        event.reply('chat-message-received', {
+          error: 'Gemini service not available'
+        });
+        return;
+      }
+
+      try {
+        const result = await geminiService.sendMessageAndGetNextQuestion(userMessage);
+        event.reply('chat-message-received', result);
+      } catch (err) {
+        console.error('Error in chat:', err);
+        event.reply('chat-message-received', {
+          error: err.message
+        });
+      }
+    };
+
     ipcMain.once('post-game-review-submitted', onSubmitted);
     ipcMain.once('post-game-review-window-closed', onClosedWithoutSubmit);
+    ipcMain.on('generate-initial-questions', onGenerateQuestions);
+    ipcMain.on('send-chat-message', onChatMessage);
 
     reviewWindow.on('closed', () => {
       cleanup();
       reviewWindow = null;
       resolve('');
     });
+  });
+}
+
+function createSessionChatWindow(gameTitle, username, fileTimestamp) {
+  return new Promise((resolve) => {
+    console.log('Creating session chat window for:', gameTitle);
+    let chatWindow = new BrowserWindow({
+      width: 860,
+      height: 600,
+      frame: false,
+      transparent: true,
+      alwaysOnTop: true,
+      resizable: true,
+      movable: true,
+      show: false,
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false,
+      }
+    });
+
+    chatWindow.loadFile('review-ai.html');
+
+    // Create a separate Gemini service instance for this chat session
+    let sessionGeminiService = null;
+    try {
+      sessionGeminiService = new GeminiService();
+      console.log('✅ Created separate Gemini service for this chat session');
+    } catch (err) {
+      console.warn('⚠️ Could not create Gemini service for chat session:', err.message);
+    }
+
+    // Define IPC handlers for this chat window
+    const onGenerateQuestions = async (event, { gameTitle, annotations }) => {
+      if (!sessionGeminiService) {
+        event.reply('initial-question-ready', {
+          error: 'Gemini service not available'
+        });
+        return;
+      }
+
+      try {
+        console.log('🔵 Generating initial question for session chat...');
+        const question = await sessionGeminiService.initializeAndGetFirstQuestion(gameTitle, annotations);
+        console.log('🔵 Question generated:', question);
+        event.reply('initial-question-ready', { question });
+      } catch (err) {
+        console.error('❌ Error generating first question:', err);
+        event.reply('initial-question-ready', {
+          error: err.message
+        });
+      }
+    };
+
+    const onChatMessage = async (event, { userMessage, gameTitle }) => {
+      if (!sessionGeminiService) {
+        event.reply('chat-message-received', {
+          error: 'Gemini service not available'
+        });
+        return;
+      }
+
+      try {
+        console.log('🔵 Processing chat message in session chat...');
+        const result = await sessionGeminiService.sendMessageAndGetNextQuestion(userMessage);
+        console.log('🔵 Chat response ready:', result);
+        event.reply('chat-message-received', result);
+      } catch (err) {
+        console.error('❌ Error in session chat:', err);
+        event.reply('chat-message-received', {
+          error: err.message
+        });
+      }
+    };
+
+    chatWindow.once('ready-to-show', () => {
+      console.log('🟢 Chat window ready to show');
+      if (chatWindow) {
+        // Send session data to renderer for chat-only mode
+        chatWindow.webContents.send('session-data', {
+          gameTitle: gameTitle,
+          username: username,
+          fileTimestamp: fileTimestamp,
+          annotations: '',
+          geminiAvailable: sessionGeminiService !== null,
+          isChatOnly: true
+        });
+
+        chatWindow.show();
+        chatWindow.focus();
+        console.log('🟢 Chat window displayed');
+      }
+    });
+
+    // Register handlers for this window
+    ipcMain.on('generate-initial-questions', onGenerateQuestions);
+    ipcMain.on('send-chat-message', onChatMessage);
+
+    const cleanup = () => {
+      console.log('🔵 Cleaning up session chat handlers');
+      ipcMain.removeListener('generate-initial-questions', onGenerateQuestions);
+      ipcMain.removeListener('send-chat-message', onChatMessage);
+      ipcMain.removeListener('post-game-review-window-closed', onChatClosed);
+      // Clean up this session's Gemini service
+      sessionGeminiService = null;
+    };
+
+    const onChatClosed = () => {
+      console.log('🔵 Session chat closed (close button clicked)');
+      cleanup();
+      if (chatWindow && !chatWindow.isDestroyed()) {
+        chatWindow.close();
+      }
+      chatWindow = null;
+      // Return focus to mainWindow
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.focus();
+      }
+      resolve();
+    };
+
+    const onClosed = () => {
+      console.log('🔵 Chat window closed');
+      cleanup();
+      chatWindow = null;
+      // Return focus to mainWindow
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.focus();
+      }
+      resolve();
+    };
+
+    ipcMain.once('post-game-review-window-closed', onChatClosed);
+    chatWindow.on('closed', onClosed);
   });
 }
 
@@ -1210,13 +1462,18 @@ function registerShortcuts() {
     if (isUploading) return;
     isUploading = true;
     try {
-      if (appConfig.enablePostGameReview) {
-        const reviewText = await createPostGameReviewWindow();
-        sessionMetadata.setPostGameReview(reviewText);
-      } else {
+      // Always show loading window and stop FFmpeg first
+      if (appConfig.reviewMode !== 'ai') {
         createLoadingWindow();
       }
       await stopFFMpegRecording();
+      
+      // Then handle review based on mode
+      if (appConfig.reviewMode === 'ai' || appConfig.reviewMode === 'text') {
+        closeLoadingWindow();
+        const reviewText = await createPostGameReviewWindow();
+        sessionMetadata.setPostGameReview(reviewText);
+      }
     } catch (err) {
       console.error('Error during FFMPEG shutdown:', err);
     } finally {
@@ -1334,7 +1591,7 @@ app.whenReady().then(async () => {
     await createUsernamePrompt();
   }
   awsManager = new AWSManager(sessionMetadata.getUsername());
-  await awsManager.init();
+  //await awsManager.init();
 
   const ffmpegCheck = checkFFMpegAvailable();
   ffmpegReady = ffmpegCheck.available;
@@ -1368,6 +1625,15 @@ app.whenReady().then(async () => {
       });
     } catch (err) {
       console.error('Error saving annotation:', err);
+    }
+  });
+  ipcMain.on('save-session-chat-transcript', (event, { gameTitle, username, fileTimestamp, transcript }) => {
+    try {
+      saveChatTranscript(username, fileTimestamp, transcript, gameTitle).catch((err) => {
+        console.error('Error saving chat transcript:', err);
+      });
+    } catch (err) {
+      console.error('Error saving chat transcript:', err);
     }
   });
   ipcMain.on('save-start', (event, { title }) => {
@@ -1414,6 +1680,19 @@ app.whenReady().then(async () => {
   await handleHomeChoice(choice);
   isReturningHome = false;
 });
+
+console.log('🔧 Registering open-session-chat listener...');
+  ipcMain.on('open-session-chat', async (event, { gameTitle, username, fileTimestamp }) => {
+    console.log('✅ open-session-chat received:', { gameTitle, username, fileTimestamp });
+    try {
+      await createSessionChatWindow(gameTitle, username, fileTimestamp);
+      console.log('✅ Chat window opened successfully');
+    } catch (err) {
+      console.error('❌ Error opening chat window:', err);
+    }
+  });
+console.log('✅ open-session-chat listener registration complete');
+
   ipcMain.on('hide-username', () => {
     if (usernamePromptWindow && usernamePromptWindow.isVisible()) {
       usernamePromptWindow.close();
@@ -1434,6 +1713,9 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('get-local-sessions', async (event, username) => {
     return listLocalSessions(username);
+  });
+  ipcMain.handle('get-session-chat-transcript', async (event, { username, fileTimestamp }) => {
+    return loadChatTranscript(username, fileTimestamp);
   });
   ipcMain.handle('upload-local-session', async (event, { username, fileTimestamp }) => {
     if (!username || !fileTimestamp) {
