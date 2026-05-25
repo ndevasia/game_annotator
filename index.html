@@ -466,9 +466,41 @@
       background: rgba(255, 0, 255, 0.2);
       box-shadow: 0 0 8px rgba(255, 0, 255, 0.4);
     }
+
+    #back-home {
+      margin: 10px 0 20px 10px;
+      width: 44px;
+      height: 44px;
+      padding: 0;
+      border: 2px solid #00ffff;
+      border-radius: 50%;
+      background: rgba(13, 2, 33, 0.9);
+      color: #00ffff;
+      cursor: pointer;
+      font-size: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease-in-out;
+      font-family: monospace;
+      font-weight: bold;
+      box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+      line-height: 1;
+    }
+
+    #back-home:hover {
+      background: rgba(0, 255, 255, 0.1);
+      box-shadow: 0 0 20px rgba(0, 255, 255, 0.6);
+      transform: scale(1.1);
+    }
+
+    #back-home:active {
+      transform: scale(0.95);
+    }
   </style>
 </head>
 <body>
+  <button id="back-home" title="Back to Home">←</button>
   <h1 class="neon-heading">Annotated Sessions</h1>
   <div id="loader" class="loader"></div>
   <div id="sessions"></div>
@@ -476,22 +508,6 @@
   <button id="load-more" style="display:none; margin: 20px auto; padding: 10px 20px;
     background: #00ffff; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">
     Load More Sessions
-  </button>
-
-  <button id="back-home" style="
-    margin: 20px auto;
-    display: block;
-    padding: 10px 20px;
-    border: 1px solid #ff00ff;
-    border-radius: 6px;
-    background: rgba(40,0,60,0.6);
-    color: #ff00ff;
-    font-family: 'Share Tech Mono', monospace;
-    cursor: pointer;
-    text-shadow: 0 0 5px #ff00ff, 0 0 10px #ff00ff, 0 0 15px #ff00ff;
-    transition: all 0.2s ease-in-out;
-  ">
-    Back to Home Screen
   </button>
 
   <div id="review-editor-overlay" class="review-editor-overlay" role="dialog" aria-modal="true" aria-labelledby="review-editor-title">

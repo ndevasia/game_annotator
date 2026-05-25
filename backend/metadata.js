@@ -101,7 +101,7 @@ class SessionMetadata {
   }
 
   toJSON() {
-    return {
+    const data = {
       username: this.username,
       title: this.title,
       fileTimestamp: this.fileTimestamp,
@@ -110,6 +110,13 @@ class SessionMetadata {
       postGameReviewSavedAt: this.postGameReviewSavedAt,
       postGameReviewLastEditedAt: this.postGameReviewLastEditedAt,
     };
+    
+    // Include study metadata if present
+    if (this.studyMetadata) {
+      data.studyMetadata = this.studyMetadata;
+    }
+    
+    return data;
   }
 }
 

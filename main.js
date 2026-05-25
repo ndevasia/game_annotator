@@ -12,6 +12,7 @@ const { readConfig, writeConfig } = require('./config.js');
 const sessionMetadata = new SessionMetadata();
 const { readUsername, writeUsername, submitUsername } = require('./username.js');
 const os = require('./os.js');
+const StudyConditions = require('./backend/studyConditions.js');
 
 let geminiService = null;
 try {
@@ -21,6 +22,11 @@ try {
 }
 
 let awsManager = null;
+let studyConditions = new StudyConditions();
+let modeSelectWindow = null;
+let conditionSelectWindow = null;
+let selectedStudyCondition = null;
+let studyLoginInfo = null;
 
 var focusedWindow = null;
 
@@ -41,6 +47,8 @@ let loadingWindow = null;
 let settingsWindow = null;
 let recentNotesWindow = null;
 let reviewWindow = null;
+let promptWindow = null;
+let studyLoginWindow = null;
 
 let ffmpegProcess = null;
 let currentRecordingPath = null;
@@ -71,6 +79,7 @@ let isUploading = false;
 let isReturningHome = false;
 let userQuitFromHome = false;
 let isStarting = false;
+let isRecordingSetup = false;
 
 function getLocalSessionRoot() {
   return path.join(app.getPath('userData'), 'local_sessions');
@@ -434,8 +443,17 @@ function createPostGameReviewWindow() {
       }
     });
 
-    // Load the appropriate review file based on review mode
-    const reviewFile = appConfig.reviewMode === 'ai' ? 'review-ai.html' : 'review-text.html';
+    // Load the appropriate review file based on study condition or review mode
+    let reviewFile = 'review-text.html'; // default
+    if (studyConditions.isEnabled()) {
+      if (studyConditions.shouldShowAIReview()) {
+        reviewFile = 'review-ai.html';
+      } else if (studyConditions.shouldShowTextReview()) {
+        reviewFile = 'review-text.html';
+      }
+    } else if (appConfig.reviewMode === 'ai') {
+      reviewFile = 'review-ai.html';
+    }
     reviewWindow.loadFile(reviewFile);
 
     reviewWindow.once('ready-to-show', () => {
@@ -461,7 +479,8 @@ function createPostGameReviewWindow() {
             username: sessionMetadata.getUsername(),
             annotations: annotations,
             geminiAvailable: geminiService !== null,
-            reviewMode: appConfig.reviewMode
+            reviewMode: appConfig.reviewMode,
+            studyMetadata: sessionMetadata.studyMetadata || {}  // Include mood/mind context
           });
         } catch (err) {
           console.error('Error sending session data:', err);
@@ -488,6 +507,18 @@ function createPostGameReviewWindow() {
         reviewWindow.close();
       }
       reviewWindow = null;
+      
+      // Advance study session after review is complete
+      if (studyConditions.isEnabled() && reviewText !== undefined) {
+        studyConditions.advanceSession();
+        const newSession = studyConditions.getSessionNumber() + 1;
+        const isComplete = studyConditions.isStudyComplete();
+        console.log(`📋 Session completed. Progress: ${newSession}/6`);
+        if (isComplete) {
+          console.log(`✅ Study complete! All 6 sessions have been finished.`);
+        }
+      }
+      
       resolve(reviewText || '');
     };
 
@@ -499,7 +530,7 @@ function createPostGameReviewWindow() {
       resolveAndClose('');
     };
 
-    const onGenerateQuestions = async (event, { gameTitle, annotations }) => {
+    const onGenerateQuestions = async (event, { gameTitle, annotations, studyContext }) => {
       if (!geminiService) {
         event.reply('initial-question-ready', {
           error: 'Gemini service not available'
@@ -508,7 +539,7 @@ function createPostGameReviewWindow() {
       }
 
       try {
-        const question = await geminiService.initializeAndGetFirstQuestion(gameTitle, annotations);
+        const question = await geminiService.initializeAndGetFirstQuestion(gameTitle, annotations, studyContext);
         event.reply('initial-question-ready', { question });
       } catch (err) {
         console.error('Error generating first question:', err);
@@ -852,12 +883,83 @@ function createNoteWindow() {
   });
 }
 
+function createLightPromptWindow() {
+  if (promptWindow) return;
+
+  promptWindow = new BrowserWindow({
+    width: 700,
+    height: 500,
+    alwaysOnTop: true,
+    transparent: true,
+    frame: false,
+    resizable: false,
+    skipTaskbar: true,
+    focusable: true,
+    show: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    }
+  });
+
+  promptWindow.loadFile('prompt-light.html');
+
+  promptWindow.once('ready-to-show', () => {
+    console.log('Light prompt window ready');
+    promptWindow.show();
+  });
+
+  promptWindow.on('closed', () => {
+    promptWindow = null;
+  });
+}
+
+function createAIPromptWindow(gameTitle) {
+  if (promptWindow) return;
+
+  promptWindow = new BrowserWindow({
+    width: 700,
+    height: 600,
+    alwaysOnTop: true,
+    transparent: true,
+    frame: false,
+    resizable: false,
+    skipTaskbar: true,
+    focusable: true,
+    show: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    }
+  });
+
+  promptWindow.loadFile('prompt-ai.html');
+
+  promptWindow.once('ready-to-show', () => {
+    console.log('AI prompt window ready');
+    promptWindow.show();
+    // Send game title to the prompt window
+    promptWindow.webContents.send('session-data', { gameTitle });
+  });
+
+  promptWindow.on('closed', () => {
+    promptWindow = null;
+  });
+}
+
+function closePromptWindow() {
+  if (promptWindow && !promptWindow.isDestroyed()) {
+    promptWindow.close();
+    promptWindow = null;
+  }
+}
+
 function createStartWindow() {
   if (startWindow) return;
 
   startWindow = new BrowserWindow({
     width: 400,
-    height: 200,
+    height: 450,
     alwaysOnTop: true,
     transparent: true,
     frame: false,
@@ -875,6 +977,13 @@ function createStartWindow() {
 
   startWindow.once('ready-to-show', () => {
     console.log('Start window ready');
+  });
+
+  startWindow.webContents.on('did-finish-load', () => {
+    // Send study mode info to start window
+    if (studyConditions.isEnabled()) {
+      startWindow.webContents.send('session-data', { studyMode: true });
+    }
   });
 
 }
@@ -922,6 +1031,170 @@ function createRecentNotesWindow() {
 
   recentNotesWindow.on('closed', () => {
     recentNotesWindow = null;
+  });
+}
+
+function createModeSelectWindow() {
+  return new Promise((resolve) => {
+    if (modeSelectWindow) {
+      modeSelectWindow.focus();
+      return;
+    }
+
+    modeSelectWindow = new BrowserWindow({
+      width: 600,
+      height: 350,
+      alwaysOnTop: true,
+      transparent: true,
+      frame: false,
+      resizable: false,
+      skipTaskbar: true,
+      focusable: true,
+      show: false,
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false,
+      },
+    });
+
+    modeSelectWindow.loadFile('mode-select.html');
+
+    modeSelectWindow.once('ready-to-show', () => {
+      modeSelectWindow.show();
+      console.log('Mode selection window ready');
+    });
+
+    const handleModeSelected = (event, mode) => {
+      console.log(`User selected mode: ${mode}`);
+      cleanup();
+      resolve(mode);
+    };
+
+    function cleanup() {
+      ipcMain.removeListener('mode-selected', handleModeSelected);
+      if (modeSelectWindow) {
+        modeSelectWindow.close();
+        modeSelectWindow = null;
+      }
+    }
+
+    ipcMain.on('mode-selected', handleModeSelected);
+    modeSelectWindow.on('closed', () => cleanup());
+  });
+}
+
+function createConditionSelectWindow() {
+  return new Promise((resolve) => {
+    if (conditionSelectWindow) {
+      conditionSelectWindow.focus();
+      return;
+    }
+
+    conditionSelectWindow = new BrowserWindow({
+      width: 750,
+      height: 450,
+      alwaysOnTop: true,
+      transparent: true,
+      frame: false,
+      resizable: false,
+      skipTaskbar: true,
+      focusable: true,
+      show: false,
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false,
+      },
+    });
+
+    conditionSelectWindow.loadFile('condition-select.html');
+
+    conditionSelectWindow.once('ready-to-show', () => {
+      conditionSelectWindow.show();
+      console.log('Condition selection window ready');
+    });
+
+    const handleConditionSelected = (event, condition) => {
+      console.log(`User selected condition: ${condition}`);
+      cleanup();
+      resolve(condition);
+    };
+
+    const handleConditionSelectClose = () => {
+      console.log('User clicked back button');
+      cleanup();
+      resolve('back');
+    };
+
+    function cleanup() {
+      ipcMain.removeListener('condition-selected', handleConditionSelected);
+      ipcMain.removeListener('condition-select-close', handleConditionSelectClose);
+      if (conditionSelectWindow) {
+        conditionSelectWindow.close();
+        conditionSelectWindow = null;
+      }
+    }
+
+    ipcMain.on('condition-selected', handleConditionSelected);
+    ipcMain.on('condition-select-close', handleConditionSelectClose);
+    conditionSelectWindow.on('closed', () => cleanup());
+  });
+}
+
+function createStudyLoginWindow() {
+  return new Promise((resolve) => {
+    if (studyLoginWindow) {
+      studyLoginWindow.focus();
+      return;
+    }
+
+    studyLoginWindow = new BrowserWindow({
+      width: 500,
+      height: 600,
+      alwaysOnTop: true,
+      transparent: true,
+      frame: false,
+      resizable: false,
+      skipTaskbar: true,
+      focusable: true,
+      show: false,
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false,
+      },
+    });
+
+    studyLoginWindow.loadFile('study-login.html');
+
+    studyLoginWindow.once('ready-to-show', () => {
+      studyLoginWindow.show();
+      console.log('Study login window ready');
+    });
+
+    const handleStudyLoginSuccess = (event, loginData) => {
+      console.log(`Study login successful for cohort: ${loginData.cohortId}, week: ${loginData.weekNumber}`);
+      studyLoginInfo = loginData;
+      cleanup();
+      resolve(loginData);
+    };
+
+    const handleStudyLoginBack = () => {
+      console.log('User clicked back from study login');
+      cleanup();
+      resolve('back');
+    };
+
+    function cleanup() {
+      ipcMain.removeListener('study-login-success', handleStudyLoginSuccess);
+      ipcMain.removeListener('study-login-back', handleStudyLoginBack);
+      if (studyLoginWindow) {
+        studyLoginWindow.close();
+        studyLoginWindow = null;
+      }
+    }
+
+    ipcMain.on('study-login-success', handleStudyLoginSuccess);
+    ipcMain.on('study-login-back', handleStudyLoginBack);
+    studyLoginWindow.on('closed', () => cleanup());
   });
 }
 
@@ -1462,14 +1735,19 @@ function registerShortcuts() {
     if (isUploading) return;
     isUploading = true;
     try {
+      // Check if we should show review based on study condition or app config
+      const shouldShowReview = studyConditions.isEnabled() 
+        ? studyConditions.shouldShowReview() 
+        : (appConfig.reviewMode === 'ai' || appConfig.reviewMode === 'text');
+
       // Always show loading window and stop FFmpeg first
-      if (appConfig.reviewMode !== 'ai') {
+      if (!shouldShowReview || appConfig.reviewMode !== 'ai') {
         createLoadingWindow();
       }
       await stopFFMpegRecording();
       
       // Then handle review based on mode
-      if (appConfig.reviewMode === 'ai' || appConfig.reviewMode === 'text') {
+      if (shouldShowReview) {
         closeLoadingWindow();
         const reviewText = await createPostGameReviewWindow();
         sessionMetadata.setPostGameReview(reviewText);
@@ -1499,6 +1777,55 @@ function registerShortcuts() {
   });
 }
 
+async function startRecordingPhase() {
+  /**
+   * Starts FFmpeg recording and creates annotation/overlay windows
+   * Called after game title is entered and prompt (if any) is confirmed
+   */
+  isRecordingSetup = true;
+  console.log('🎙️ Starting recording phase setup...');
+  
+  try {
+    await startFFMpegRecording();
+    console.log('✅ FFMPEG recording started');
+    
+    createNoteWindow();        // open overlay window
+    createEmojiWindow();
+    
+    // Create and show recent notes overlay if enabled
+    if (appConfig.showRecentNotesOverlay) {
+      createRecentNotesWindow();
+      if (recentNotesWindow) {
+        recentNotesWindow.show();
+        // Send the configured message count to the overlay
+        const count = appConfig.recentNotesCount || 3;
+        recentNotesWindow.webContents.send('set-notes-display-count', count);
+        // Send the video start timestamp for relative time calculations
+        const videoStart = sessionMetadata.getVideoStartTimestamp();
+        recentNotesWindow.webContents.send('set-video-start-time', videoStart);
+      }
+    }
+    
+    console.log('✅ Recording phase setup complete');
+    
+    // Allow brief time for windows to fully initialize before clearing the flag
+    setTimeout(() => {
+      isRecordingSetup = false;
+      console.log('✅ Recording phase setup flag cleared');
+    }, 500);
+    
+  } catch (err) {
+    console.error('Error starting recording phase:', err);
+    isRecordingSetup = false;
+    dialog.showMessageBoxSync({
+      type: 'error',
+      buttons: ['OK'],
+      title: 'Recording Error',
+      message: 'Failed to start recording'
+    });
+  }
+}
+
 async function startSession() {
   console.log('➡ User starting session flow');
   if (!ffmpegReady) {
@@ -1521,23 +1848,8 @@ async function startSession() {
 
   registerShortcuts();
   createStartWindow();
-  await startFFMpegRecording();
-  createNoteWindow();        // open overlay window
-  createEmojiWindow();
   
-  // Create and show recent notes overlay if enabled
-  if (appConfig.showRecentNotesOverlay) {
-    createRecentNotesWindow();
-    if (recentNotesWindow) {
-      recentNotesWindow.show();
-      // Send the configured message count to the overlay
-      const count = appConfig.recentNotesCount || 3;
-      recentNotesWindow.webContents.send('set-notes-display-count', count);
-      // Send the video start timestamp for relative time calculations
-      const videoStart = sessionMetadata.getVideoStartTimestamp();
-      recentNotesWindow.webContents.send('set-video-start-time', videoStart);
-    }
-  }
+  // FFmpeg recording and other windows will be created after prompt confirmation or immediately if no prompt
 }
 
 async function saveSettings(partialSettings) {
@@ -1583,6 +1895,46 @@ async function handleHomeChoice(choice) {
   }
 }
 
+async function showStartupFlow() {
+  // Show mode selection window
+  const selectedMode = await createModeSelectWindow();
+  
+  if (selectedMode === 'study') {
+    // Show study login (which will determine condition based on participant ID)
+    const loginResult = await createStudyLoginWindow();
+    
+    if (loginResult === 'back') {
+      // User clicked back from login - restart the flow
+      return showStartupFlow();
+    }
+
+    // Map condition letter to descriptive name for studyConditions
+    const conditionMap = {
+      'A': 'light',
+      'B': 'medium',
+      'C': 'ai'
+    };
+    
+    const selectedCondition = conditionMap[loginResult.condition];
+
+    // Initialize study conditions with automatically-determined condition
+    try {
+      await studyConditions.initialize(sessionMetadata.getUsername(), awsManager, selectedCondition);
+      console.log(`📋 Study mode enabled for user ${sessionMetadata.getUsername()}`);
+      console.log(`   Session ${studyConditions.getSessionNumber() + 1}/6`);
+      console.log(`   Participant: ${loginResult.participantId}`);
+      console.log(`   Cohort: ${loginResult.cohortId}, Week: ${loginResult.weekNumber}`);
+      console.log(`   Condition: ${loginResult.condition} (${selectedCondition})`);
+    } catch (err) {
+      console.warn(`⚠️ Could not initialize study conditions:`, err.message);
+    }
+  } else {
+    // User selected normal mode
+    console.log('📋 Normal mode selected');
+    studyConditions.enabled = false;
+  }
+}
+
 app.whenReady().then(async () => {
   console.log("A: App starting");
   isStarting = true;
@@ -1591,7 +1943,15 @@ app.whenReady().then(async () => {
     await createUsernamePrompt();
   }
   awsManager = new AWSManager(sessionMetadata.getUsername());
-  //await awsManager.init();
+  
+  // Initialize AWS manager with error handling
+  try {
+    await awsManager.init();
+    console.log('✅ AWS S3 client initialized');
+  } catch (err) {
+    console.error('❌ Failed to initialize AWS S3 client:', err.message);
+    console.log('⚠️ S3 operations will be unavailable. Local storage will be used.');
+  }
 
   const ffmpegCheck = checkFFMpegAvailable();
   ffmpegReady = ffmpegCheck.available;
@@ -1613,7 +1973,10 @@ app.whenReady().then(async () => {
 
   isStarting = false;
 
-  // Blocking prompt at startup:
+  // Show startup flow (mode/condition selection)
+  await showStartupFlow();
+
+  // Now show home window
   const choice = await createHomeWindow();
   await handleHomeChoice(choice);
   });
@@ -1636,9 +1999,38 @@ app.whenReady().then(async () => {
       console.error('Error saving chat transcript:', err);
     }
   });
-  ipcMain.on('save-start', (event, { title }) => {
-    sessionMetadata.setTitle(title)
+  ipcMain.on('save-start', (event, { title, mood, mind }) => {
+    sessionMetadata.setTitle(title);
+    
+    // Store study metadata if provided
+    if (mood || mind) {
+      // Store in a custom field on metadata for later retrieval
+      sessionMetadata.studyMetadata = {
+        mood: mood || '',
+        mind: mind || ''
+      };
+      console.log('📋 Study session info captured:');
+      console.log(`   Mood: ${mood || '(not provided)'}`);
+      console.log(`   Mind: ${mind || '(not provided)'}`);
+    }
+    
     maybeWriteSessionMetadata();
+
+    // Check if we need to show a prompt based on study condition
+    if (studyConditions.isEnabled()) {
+      if (studyConditions.shouldShowLightPrompt()) {
+        createLightPromptWindow();
+      } else if (studyConditions.shouldShowAIPrompt()) {
+        createAIPromptWindow(title);
+      } else {
+        // Control condition - no prompt, start recording immediately
+        console.log('📋 Study mode: Control condition - starting recording immediately');
+        startRecordingPhase();
+      }
+    } else {
+      // Normal mode - start recording immediately
+      startRecordingPhase();
+    }
   });
 
 
@@ -1659,6 +2051,139 @@ app.whenReady().then(async () => {
       startWindow = null;
     }
   });
+
+  ipcMain.on('request-study-info', (event) => {
+    // Send study mode info to requesting window
+    if (studyConditions.isEnabled()) {
+      event.reply('session-data', { studyMode: true });
+    }
+  });
+
+  ipcMain.on('verify-study-credentials', async (event, { participantId, cohortId, weekNumber, password }) => {
+    try {
+      // Load combined_passwords.json from S3
+      const passwordData = await awsManager.readStudyPasswordsFile();
+
+      // Verify cohort exists
+      if (!passwordData[cohortId]) {
+        event.reply('study-credentials-verified', {
+          success: false,
+          error: `Cohort "${cohortId}" not found`
+        });
+        return;
+      }
+
+      // Get the password list for the cohort
+      const cohortPasswords = passwordData[cohortId];
+
+      // Verify week number is valid
+      if (weekNumber < 1 || weekNumber > cohortPasswords.length) {
+        event.reply('study-credentials-verified', {
+          success: false,
+          error: `Week ${weekNumber} is not valid for cohort "${cohortId}". Valid weeks: 1-${cohortPasswords.length}`
+        });
+        return;
+      }
+
+      // Verify password (case-sensitive)
+      const correctPassword = cohortPasswords[weekNumber - 1];
+      console.log(`🔐 Password verification for ${cohortId}, week ${weekNumber}:`);
+      console.log(`   Expected: "${correctPassword}"`);
+      console.log(`   Actual:   "${password}"`);
+      console.log(`   Match: ${password === correctPassword}`);
+      if (password !== correctPassword) {
+        event.reply('study-credentials-verified', {
+          success: false,
+          error: 'Incorrect password'
+        });
+        return;
+      }
+
+      // Load conditions.json to determine participant's condition
+      const conditionsData = await awsManager.readConditionsFile();
+      
+      if (!conditionsData[participantId]) {
+        event.reply('study-credentials-verified', {
+          success: false,
+          error: `Participant "${participantId}" not found in conditions`
+        });
+        return;
+      }
+
+      const participantConditions = conditionsData[participantId];
+      
+      if (weekNumber < 1 || weekNumber > participantConditions.length) {
+        event.reply('study-credentials-verified', {
+          success: false,
+          error: `Week ${weekNumber} is not valid for ${participantId}. Valid weeks: 1-${participantConditions.length}`
+        });
+        return;
+      }
+
+      const assignedCondition = participantConditions[weekNumber - 1];
+      
+      // Map condition letter to descriptive name
+      const conditionMap = {
+        'A': 'light',
+        'B': 'medium',
+        'C': 'ai'
+      };
+      
+      console.log(`🎯 Study credentials verified for ${participantId}, week ${weekNumber}`);
+      console.log(`   Assigned condition: ${assignedCondition} (${conditionMap[assignedCondition] || 'unknown'})`);
+      
+      event.reply('study-credentials-verified', {
+        success: true,
+        condition: assignedCondition
+      });
+    } catch (err) {
+      console.error('Error verifying study credentials:', err);
+      event.reply('study-credentials-verified', {
+        success: false,
+        error: 'Error verifying credentials. Please try again.'
+      });
+    }
+  });
+
+  ipcMain.on('light-prompt-confirmed', () => {
+    console.log('👤 User confirmed light prompt');
+    closePromptWindow();
+    startRecordingPhase();
+  });
+
+  ipcMain.on('ai-prompt-confirmed', () => {
+    console.log('🤖 User confirmed AI prompt');
+    closePromptWindow();
+    startRecordingPhase();
+  });
+
+  ipcMain.on('hide-prompt', () => {
+    closePromptWindow();
+  });
+
+  ipcMain.on('generate-ai-suggestions', async (event, { gameTitle }) => {
+    if (!geminiService) {
+      event.reply('ai-suggestions-ready', {
+        error: 'AI service not available',
+        suggestions: null
+      });
+      return;
+    }
+
+    try {
+      // Generate suggestions based on game title
+      // This uses a simple prompt to Gemini to suggest annotation topics
+      const suggestions = await geminiService.generateAnnotationSuggestions(gameTitle);
+      event.reply('ai-suggestions-ready', { suggestions });
+    } catch (err) {
+      console.error('Error generating AI suggestions:', err);
+      event.reply('ai-suggestions-ready', {
+        error: err.message,
+        suggestions: null
+      });
+    }
+  });
+
   ipcMain.on('open-past-sessions', () => {
     createMainWindow();
   });
@@ -1845,11 +2370,17 @@ console.log('✅ open-session-chat listener registration complete');
 
   app.on('window-all-closed', () => {
     // If we are currently in the middle of the startup flow (switching windows)
-    
     if (isStarting) {
       console.log("Still starting up, skipping quit.");
       return;
     }
+    
+    // If we are currently setting up recording (transitioning between windows)
+    if (isRecordingSetup) {
+      console.log("Setting up recording, skipping quit.");
+      return;
+    }
+    
     console.log("All windows closed, quitting app");
 
     // or if we are on macOS, don't quit the app.

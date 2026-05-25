@@ -4,30 +4,132 @@
   <meta charset="UTF-8">
   <title>Start Session</title>
   <link rel="stylesheet" href="style.css">
+  <style>
+    body {
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+
+    .study-fields {
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .study-fields.show {
+      display: flex;
+    }
+
+    .study-field-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .study-field-group label {
+      font-size: 0.9em;
+      color: #888;
+      font-weight: 500;
+    }
+
+    .study-field-group textarea {
+      font-family: Arial, sans-serif;
+      font-size: 0.95em;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      resize: vertical;
+      min-height: 50px;
+    }
+
+    #start {
+      margin-top: 10px;
+    }
+
+    .button-small {
+      align-self: flex-start;
+    }
+  </style>
 </head>
 <body>
-  <textarea id="start" placeholder="What game are you playing today?"></textarea>
+  <div class="study-fields" id="study-fields">
+    <div class="study-field-group">
+      <label for="mood">What are three words that describe how you feel today? <span style="color: #ff4444;">*</span></label>
+      <textarea id="mood" placeholder="E.g., focused, excited, tired" required></textarea>
+    </div>
+
+    <div class="study-field-group">
+      <label for="mind">What's something that's been on your mind recently? <span style="color: #ff4444;">*</span></label>
+      <textarea id="mind" placeholder="E.g., a project, a thought, a concern" required></textarea>
+    </div>
+  </div>
+
+  <div class="study-field-group">
+    <label for="start">What game are you playing today?</label>
+    <textarea id="start" placeholder="Enter game title..."></textarea>
+  </div>
   <button class="button-small" onclick="saveStart()">Submit</button>
 
   <script>
     const { ipcRenderer } = require('electron');
+    let isStudyMode = false;
+
+    // Listen for study condition info from main process
+    ipcRenderer.on('session-data', (event, data) => {
+      if (data && data.studyMode) {
+        isStudyMode = true;
+        document.getElementById('study-fields').classList.add('show');
+        document.getElementById('mood').focus();
+        console.log('📋 Study mode detected - showing additional fields');
+      }
+    });
 
     function saveStart() {
       const title = document.getElementById('start').value.trim();
+      const mood = document.getElementById('mood').value.trim();
+      const mind = document.getElementById('mind').value.trim();
 
       if (!title) {
         alert("Please enter a game title before submitting.");
         return;
       }
 
-      ipcRenderer.send('save-start', { title });
+      // Validate study fields if in study mode
+      if (isStudyMode) {
+        if (!mood) {
+          alert("Please describe three words that describe how you feel today.");
+          document.getElementById('mood').focus();
+          return;
+        }
+        if (!mind) {
+          alert("Please share something that's been on your mind recently.");
+          document.getElementById('mind').focus();
+          return;
+        }
+      }
+
+      const data = { title };
+
+      // Include study fields if in study mode
+      if (isStudyMode) {
+        data.mood = mood;
+        data.mind = mind;
+      }
+
+      ipcRenderer.send('save-start', data);
       document.getElementById('start').value = '';
+      if (isStudyMode) {
+        document.getElementById('mood').value = '';
+        document.getElementById('mind').value = '';
+      }
       ipcRenderer.send('hide-start');
     }
 
-    // Trigger saveStart() on Enter key
-    const noteInput = document.getElementById('start');
-    noteInput.addEventListener('keydown', (e) => {
+    // Trigger saveStart() on Enter key (but allow Enter in other textareas)
+    const gameInput = document.getElementById('start');
+    gameInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         saveStart();
@@ -35,7 +137,9 @@
     });
 
     document.addEventListener('DOMContentLoaded', () => {
-      document.getElementById('start').focus();
+      // Request study info
+      ipcRenderer.send('request-study-info');
+      gameInput.focus();
     });
   </script>
 </body>

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Game Annotator - Select Mode</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+      background: linear-gradient(180deg, #0d0221, #1a1a40, #2e0249);
+      font-family: Arial, sans-serif;
+    }
+
+    .mode-selection-container {
+      background: rgba(20, 20, 40, 0.95);
+      border: 2px solid #00ffff;
+      border-radius: 12px;
+      padding: 40px;
+      max-width: 600px;
+      box-shadow: 0 0 30px rgba(0, 255, 255, 0.3);
+      text-align: center;
+    }
+
+    h1 {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 2em;
+      color: #00ffff;
+      text-shadow: 0 0 10px #00ffff, 0 0 20px #0088ff;
+      margin-bottom: 10px;
+    }
+
+    .subtitle {
+      color: #aaa;
+      margin-bottom: 40px;
+      font-size: 0.95em;
+    }
+
+    .mode-buttons {
+      display: flex;
+      gap: 20px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .mode-button {
+      flex: 1;
+      min-width: 200px;
+      padding: 30px 20px;
+      border: 2px solid #ff00ff;
+      border-radius: 8px;
+      background: rgba(100, 0, 100, 0.15);
+      color: #ff00ff;
+      font-size: 1.1em;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-family: 'Share Tech Mono', monospace;
+    }
+
+    .mode-button:hover {
+      background: rgba(255, 0, 255, 0.25);
+      box-shadow: 0 0 20px rgba(255, 0, 255, 0.5);
+      transform: translateY(-2px);
+    }
+
+    .mode-button:active {
+      transform: translateY(0);
+    }
+
+    .mode-button.normal {
+      border-color: #00ffff;
+      color: #00ffff;
+      background: rgba(0, 100, 100, 0.15);
+    }
+
+    .mode-button.normal:hover {
+      background: rgba(0, 255, 255, 0.25);
+      box-shadow: 0 0 20px rgba(0, 255, 255, 0.5);
+    }
+
+    .mode-description {
+      font-size: 0.8em;
+      opacity: 0.7;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="mode-selection-container">
+    <h1>Game Annotator</h1>
+    <p class="subtitle">Select your mode to begin</p>
+    
+    <div class="mode-buttons">
+      <button class="mode-button normal" onclick="selectMode('normal')">
+        Normal Mode
+        <div class="mode-description">Annotate freely without prompts</div>
+      </button>
+      <button class="mode-button" onclick="selectMode('study')">
+        Study Mode
+        <div class="mode-description">Participate in research study</div>
+      </button>
+    </div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    function selectMode(mode) {
+      console.log(`User selected: ${mode}`);
+      ipcRenderer.send('mode-selected', mode);
+    }
+  </script>
+</body>
+</html>
