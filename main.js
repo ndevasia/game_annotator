@@ -49,6 +49,7 @@ let recentNotesWindow = null;
 let reviewWindow = null;
 let promptWindow = null;
 let studyLoginWindow = null;
+let questionnaireWindow = null;
 
 let ffmpegProcess = null;
 let currentRecordingPath = null;
@@ -78,6 +79,7 @@ let shortcutsRegistered = false;
 let isUploading = false;
 let isReturningHome = false;
 let userQuitFromHome = false;
+let isNavigatingFromHome = false;
 let isStarting = false;
 let isRecordingSetup = false;
 
@@ -295,6 +297,7 @@ async function listLocalSessions(username) {
       postGameReview: metadataObj.postGameReview || '',
       postGameReviewSavedAt: metadataObj.postGameReviewSavedAt || null,
       postGameReviewLastEditedAt: metadataObj.postGameReviewLastEditedAt || null,
+      postGameReviewCondition: metadataObj.postGameReviewCondition || null,
       videoUrl: hasVideo ? toFileUrl(videoPath) : null,
       annotationPath,
       isLocalOnly: true,
@@ -765,13 +768,49 @@ function createMainWindow() {
   mainWindow.webContents.on('did-finish-load', () => {
     // Send sessionMetadata object or whatever data you want
     console.log("Sending username to index.html ", sessionMetadata.getUsername());
-    mainWindow.webContents.send('session-data', sessionMetadata.getUsername());
+    const studyCondition = studyConditions.isEnabled() ? studyConditions.getCondition() : null;
+    mainWindow.webContents.send('session-data', {
+      username: sessionMetadata.getUsername(),
+      studyCondition,
+      studyMode: studyConditions.isEnabled()
+    });
   });
 
-  mainWindow.on('close', (e) => {
+  mainWindow.on('close', async (e) => {
+    console.log('🔴 Close event triggered');
+    console.log('   isUploading:', isUploading);
+    console.log('   isReturningHome:', isReturningHome);
+    console.log('   userQuitFromHome:', userQuitFromHome);
+    
     // If the app is in the middle of uploading, don't show the box
-    if (isUploading || isReturningHome || userQuitFromHome) return;
+    if (isUploading || isReturningHome || userQuitFromHome) {
+      console.log('   Skipping close handler - already in closing state');
+      return;
+    }
 
+    // If in study mode, show questionnaire
+    console.log('   studyConditions.isEnabled():', studyConditions.isEnabled());
+    if (studyConditions.isEnabled()) {
+      e.preventDefault();
+      console.log('📋 Study mode detected - showing end-of-session questionnaire');
+      
+      try {
+        // Show questionnaire and wait for it to complete
+        const result = await createQuestionnaireWindow();
+        console.log('✅ Questionnaire completed, result:', result);
+        
+        // Now that questionnaire is done, proceed with app quit
+        userQuitFromHome = true;
+        app.quit();
+      } catch (err) {
+        console.error('❌ Error showing questionnaire:', err);
+        userQuitFromHome = true;
+        app.quit();
+      }
+      return;
+    }
+
+    // Normal mode: show confirmation dialog
     // Prevent the window from closing immediately
     e.preventDefault();
 
@@ -809,6 +848,146 @@ function closeAllIndexWindows() {
     }
   }
   mainWindow = null;
+}
+
+function createQuestionnaireWindow() {
+  return new Promise((resolve) => {
+    console.log('📋 createQuestionnaireWindow() called');
+    
+    // If a questionnaire window already exists, destroy it first
+    if (questionnaireWindow && !questionnaireWindow.isDestroyed()) {
+      console.log('   Destroying existing questionnaire window');
+      try {
+        questionnaireWindow.destroy();
+      } catch (err) {
+        console.warn('   Error destroying existing window:', err);
+      }
+      questionnaireWindow = null;
+    }
+
+    console.log('   Creating new questionnaire window');
+    // Use homeWindow if available, otherwise mainWindow
+    const parentWindow = homeWindow || mainWindow;
+    console.log('   Parent window:', parentWindow ? 'exists' : 'null');
+    
+    questionnaireWindow = new BrowserWindow({
+      width: 1000,
+      height: 900,
+      modal: true,
+      parent: parentWindow,
+      show: false,
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false,
+      },
+    });
+
+    console.log('   Loading end-session-questionnaire.html');
+    questionnaireWindow.loadFile('end-session-questionnaire.html');
+
+    questionnaireWindow.once('ready-to-show', () => {
+      console.log('   Questionnaire window ready-to-show, displaying...');
+      questionnaireWindow.show();
+      console.log('   🎯 End-of-session questionnaire window is now visible');
+    });
+
+    // Prevent closing the questionnaire window via X button
+    questionnaireWindow.on('close', (e) => {
+      e.preventDefault();
+      console.log('   User attempted to close questionnaire window - sending error message');
+      // Send message to questionnaire renderer to show error
+      if (questionnaireWindow && !questionnaireWindow.isDestroyed()) {
+        questionnaireWindow.webContents.send('show-close-error');
+      }
+    });
+
+    // Handle errors
+    questionnaireWindow.webContents.on('crashed', () => {
+      console.error('❌ Questionnaire window crashed');
+      cleanup();
+      resolve({ submitted: false, error: 'Window crashed' });
+    });
+
+    let questionnaireTimeout;
+    let resolutionCalled = false;
+
+    function cleanup() {
+      console.log('   Cleaning up questionnaire window');
+      if (questionnaireTimeout) {
+        clearTimeout(questionnaireTimeout);
+        questionnaireTimeout = null;
+      }
+      ipcMain.removeListener('questionnaire-responses-submitted', handleQuestionnaireSubmitted);
+      ipcMain.removeListener('questionnaire-close-without-save', handleQuestionnaireClose);
+      if (questionnaireWindow && !questionnaireWindow.isDestroyed()) {
+        try {
+          questionnaireWindow.destroy();
+        } catch (err) {
+          console.warn('   Error destroying questionnaire window:', err);
+        }
+        questionnaireWindow = null;
+      }
+    }
+
+    const handleQuestionnaireSubmitted = (event, responses) => {
+      console.log('✅ Questionnaire responses received');
+      console.log('   Response data:', responses);
+      
+      // Remove listeners and close the window gracefully
+      ipcMain.removeListener('questionnaire-responses-submitted', handleQuestionnaireSubmitted);
+      ipcMain.removeListener('questionnaire-close-without-save', handleQuestionnaireClose);
+      if (questionnaireTimeout) {
+        clearTimeout(questionnaireTimeout);
+        questionnaireTimeout = null;
+      }
+      
+      if (questionnaireWindow && !questionnaireWindow.isDestroyed()) {
+        console.log('   Closing questionnaire window (submitted)');
+        questionnaireWindow.close();
+      }
+      
+      // Resolve immediately - the 'closed' event will handle final cleanup
+      if (!resolutionCalled) {
+        resolutionCalled = true;
+        resolve({ submitted: true, responses });
+      }
+    };
+
+    const handleQuestionnaireClose = () => {
+      console.log('⚠️ User closed questionnaire without submitting');
+      
+      // Remove listeners
+      ipcMain.removeListener('questionnaire-responses-submitted', handleQuestionnaireSubmitted);
+      ipcMain.removeListener('questionnaire-close-without-save', handleQuestionnaireClose);
+      if (questionnaireTimeout) {
+        clearTimeout(questionnaireTimeout);
+        questionnaireTimeout = null;
+      }
+      
+      if (!resolutionCalled) {
+        resolutionCalled = true;
+        resolve({ submitted: false });
+      }
+    };
+
+    ipcMain.on('questionnaire-responses-submitted', handleQuestionnaireSubmitted);
+    ipcMain.on('questionnaire-close-without-save', handleQuestionnaireClose);
+    
+    // Safety timeout: if questionnaire doesn't complete within 5 minutes, close it and quit anyway
+    questionnaireTimeout = setTimeout(() => {
+      console.warn('⏱️ Questionnaire timeout - closing questionnaire and quitting app');
+      cleanup();
+      if (!resolutionCalled) {
+        resolutionCalled = true;
+        resolve({ submitted: false, error: 'Timeout' });
+      }
+    }, 5 * 60 * 1000);
+    
+    questionnaireWindow.on('closed', () => {
+      console.log('   Questionnaire window closed event');
+      cleanup();
+    });
+  });
 }
 
 function createEmojiWindow() {
@@ -1229,6 +1408,46 @@ function createHomeWindow() {
       console.log('Home window ready');
     });
 
+    // Handle window close event (X button or close app)
+    homeWindow.on('close', async (e) => {
+      console.log('🔴 Home window close event triggered');
+      console.log('   studyConditions.isEnabled():', studyConditions.isEnabled());
+      console.log('   isNavigatingFromHome:', isNavigatingFromHome);
+      
+      // Skip questionnaire if we're just navigating away (not actually quitting)
+      if (isNavigatingFromHome) {
+        isNavigatingFromHome = false;
+        return;
+      }
+      
+      // If in study mode, show questionnaire before closing
+      if (studyConditions.isEnabled()) {
+        e.preventDefault();
+        console.log('📋 Study mode detected - showing end-of-session questionnaire');
+        
+        // Hide the home window so questionnaire is visible
+        if (homeWindow && !homeWindow.isDestroyed()) {
+          console.log('   Hiding home window');
+          homeWindow.hide();
+        }
+        
+        try {
+          // Show questionnaire and wait for it to complete
+          const result = await createQuestionnaireWindow();
+          console.log('✅ Questionnaire completed, result:', result);
+          
+          // Now that questionnaire is done, proceed with app quit
+          userQuitFromHome = true;
+          app.quit();
+        } catch (err) {
+          console.error('❌ Error showing questionnaire:', err);
+          userQuitFromHome = true;
+          app.quit();
+        }
+        return;
+      }
+    });
+
     // Handlers for user actions
     const handleStart = () => {
       console.log("User chose: start new session");
@@ -1243,6 +1462,7 @@ function createHomeWindow() {
 
     // Cleanup function to remove listeners + close window
     function cleanup() {
+      isNavigatingFromHome = true;  // Prevent questionnaire from showing
       ipcMain.removeListener('open-start-session', handleStart);
       ipcMain.removeListener('open-past-sessions', handlePast);
       if (homeWindow) {
@@ -1699,7 +1919,12 @@ function registerShortcuts() {
     mainWindow.show();
     mainWindow.focus();
     if (!mainWindow.webContents.isLoading()) {
-      mainWindow.webContents.send('session-data', sessionMetadata.getUsername());
+      const studyCondition = studyConditions.isEnabled() ? studyConditions.getCondition() : null;
+      mainWindow.webContents.send('session-data', {
+        username: sessionMetadata.getUsername(),
+        studyCondition,
+        studyMode: studyConditions.isEnabled()
+      });
     }
   });
 
@@ -1751,6 +1976,23 @@ function registerShortcuts() {
         closeLoadingWindow();
         const reviewText = await createPostGameReviewWindow();
         sessionMetadata.setPostGameReview(reviewText);
+        
+        // Save the condition this review was generated under
+        if (studyConditions.isEnabled()) {
+          sessionMetadata.setPostGameReviewCondition(studyConditions.getCondition());
+        }
+        
+        // Save metadata to local storage and S3
+        console.log('💾 Saving post-game review to metadata...');
+        await saveMetadataLocally();
+        if (awsManager && studyConditions.isEnabled()) {
+          try {
+            await awsManager.saveMetadata(sessionMetadata);
+            console.log('✅ Review saved to S3');
+          } catch (err) {
+            console.warn('⚠️ Failed to save review to S3:', err.message);
+          }
+        }
       }
     } catch (err) {
       console.error('Error during FFMPEG shutdown:', err);
@@ -1908,14 +2150,23 @@ async function showStartupFlow() {
       return showStartupFlow();
     }
 
-    // Map condition letter to descriptive name for studyConditions
+    // Map condition letter from S3: A=control, B=light, C=ai
     const conditionMap = {
-      'A': 'light',
-      'B': 'medium',
+      'A': 'control',
+      'B': 'light',
       'C': 'ai'
     };
     
-    const selectedCondition = conditionMap[loginResult.condition];
+    const descriptiveCondition = conditionMap[loginResult.condition];
+    
+    // Map to StudyConditions internal format
+    const studyConditionMap = {
+      'control': 'control',
+      'light': 'prompt-light',
+      'ai': 'prompt-ai'
+    };
+    
+    const selectedCondition = studyConditionMap[descriptiveCondition];
 
     // Initialize study conditions with automatically-determined condition
     try {
@@ -1924,7 +2175,7 @@ async function showStartupFlow() {
       console.log(`   Session ${studyConditions.getSessionNumber() + 1}/6`);
       console.log(`   Participant: ${loginResult.participantId}`);
       console.log(`   Cohort: ${loginResult.cohortId}, Week: ${loginResult.weekNumber}`);
-      console.log(`   Condition: ${loginResult.condition} (${selectedCondition})`);
+      console.log(`   Condition: ${loginResult.condition} (${descriptiveCondition}) -> ${selectedCondition}`);
     } catch (err) {
       console.warn(`⚠️ Could not initialize study conditions:`, err.message);
     }
@@ -2122,10 +2373,10 @@ app.whenReady().then(async () => {
 
       const assignedCondition = participantConditions[weekNumber - 1];
       
-      // Map condition letter to descriptive name
+      // Map condition letter from S3: A=control, B=light, C=ai
       const conditionMap = {
-        'A': 'light',
-        'B': 'medium',
+        'A': 'control',
+        'B': 'light',
         'C': 'ai'
       };
       
@@ -2223,6 +2474,174 @@ console.log('✅ open-session-chat listener registration complete');
       usernamePromptWindow.close();
     }
   });
+
+  // Save study session results to S3
+  async function saveStudyResultsToS3(responses) {
+    if (!studyLoginInfo || !awsManager) {
+      console.warn('⚠️ Cannot save results - missing study info or AWS manager');
+      return;
+    }
+
+    try {
+      console.log('💾 Saving study results to S3...');
+
+      // Get all required data
+      const username = sessionMetadata.getUsername();
+      const participantId = studyLoginInfo.participantId;
+      const cohortId = studyLoginInfo.cohortId;
+      const weekNumber = studyLoginInfo.weekNumber;
+      const condition = studyLoginInfo.condition;
+      const preGameMood = sessionMetadata.studyMetadata?.mood || '';
+      const preGameMind = sessionMetadata.studyMetadata?.mind || '';
+      const postGameReview = sessionMetadata.getPostGameReview() || '';
+      const gameTitle = sessionMetadata.getTitle() || '';
+      const timestamp = new Date().toISOString();
+
+      // Map condition letter from S3: A=control, B=light, C=ai
+      const conditionMap = {
+        'A': 'control',
+        'B': 'light',
+        'C': 'ai'
+      };
+      const conditionName = conditionMap[condition] || condition;
+
+      // Format the file content
+      let fileContent = '';
+      fileContent += `STUDY SESSION RESULTS\n`;
+      fileContent += `${'='.repeat(50)}\n\n`;
+
+      fileContent += `PARTICIPANT INFORMATION\n`;
+      fileContent += `${'-'.repeat(50)}\n`;
+      fileContent += `Username: ${username}\n`;
+      fileContent += `Participant ID: ${participantId}\n`;
+      fileContent += `Cohort ID: ${cohortId}\n`;
+      fileContent += `Week Number: ${weekNumber}\n`;
+      fileContent += `Condition: ${condition} (${conditionName})\n`;
+      fileContent += `Timestamp: ${timestamp}\n\n`;
+
+      fileContent += `GAME SESSION\n`;
+      fileContent += `${'-'.repeat(50)}\n`;
+      fileContent += `Game Title: ${gameTitle}\n\n`;
+
+      fileContent += `PRE-GAME REFLECTION\n`;
+      fileContent += `${'-'.repeat(50)}\n`;
+      fileContent += `Emotion/Mood: ${preGameMood}\n`;
+      fileContent += `Thought/Mind: ${preGameMind}\n\n`;
+
+      fileContent += `POST-GAME REFLECTION\n`;
+      fileContent += `${'-'.repeat(50)}\n`;
+      fileContent += `${postGameReview || '(No response provided)'}\n\n`;
+
+      fileContent += `QUESTIONNAIRE RESPONSES\n`;
+      fileContent += `${'-'.repeat(50)}\n`;
+
+      // Format questionnaire responses
+      if (responses.reflection) {
+        fileContent += `\nREFLECTION (1-5 scale)\n`;
+        fileContent += `  Q1 - I will apply principles learned from this game in my daily life: ${responses.reflection.ref1 || 'N/A'}\n`;
+        fileContent += `  Q2 - The game's content was helpful for my development: ${responses.reflection.ref2 || 'N/A'}\n`;
+        fileContent += `  Q3 - I feel confident about what I learned: ${responses.reflection.ref3 || 'N/A'}\n`;
+      }
+
+      if (responses.rumination) {
+        fileContent += `\nRUMINATION (1-5 scale)\n`;
+        fileContent += `  Q4 - I keep thinking about challenges I faced in the game: ${responses.rumination.rum1 || 'N/A'}\n`;
+        fileContent += `  Q5 - I worry about my performance in the game: ${responses.rumination.rum2 || 'N/A'}\n`;
+        fileContent += `  Q6 - I repeatedly think about things that went wrong: ${responses.rumination.rum3 || 'N/A'}\n`;
+      }
+
+      if (responses.selfFocusedThinking) {
+        fileContent += `\nSELF-FOCUSED THINKING (1-5 scale)\n`;
+        fileContent += `  Q7 - I was focused on myself rather than the game: ${responses.selfFocusedThinking.thk1 || 'N/A'}\n`;
+        fileContent += `  Q8 - I was concerned about how others viewed my performance: ${responses.selfFocusedThinking.thk2 || 'N/A'}\n`;
+        fileContent += `  Q9 - I was aware of myself and my surroundings: ${responses.selfFocusedThinking.thk3 || 'N/A'}\n`;
+      }
+
+      if (responses.gameExperience) {
+        fileContent += `\nGAME EXPERIENCE (1-5 scale)\n`;
+        fileContent += `  Q10 - I enjoyed playing this game: ${responses.gameExperience.gex1 || 'N/A'}\n`;
+        fileContent += `  Q11 - The game was challenging: ${responses.gameExperience.gex2 || 'N/A'}\n`;
+        fileContent += `  Q12 - I felt engaged during the game: ${responses.gameExperience.gex3 || 'N/A'}\n`;
+        fileContent += `  Q13 - The game was fun: ${responses.gameExperience.gex4 || 'N/A'}\n`;
+        fileContent += `  Q14 - I was focused on the game: ${responses.gameExperience.gex5 || 'N/A'}\n`;
+        fileContent += `  Q15 - The game was interesting: ${responses.gameExperience.gex6 || 'N/A'}\n`;
+        fileContent += `  Q16 - I would play this game again: ${responses.gameExperience.gex7 || 'N/A'}\n`;
+        fileContent += `  Q17 - The game was easy to understand: ${responses.gameExperience.gex8 || 'N/A'}\n`;
+        fileContent += `  Q18 - I felt motivated to do well: ${responses.gameExperience.gex9 || 'N/A'}\n`;
+        fileContent += `  Q19 - The game helped me learn something new: ${responses.gameExperience.gex10 || 'N/A'}\n`;
+        fileContent += `  Q20 - I felt in control during the game: ${responses.gameExperience.gex11 || 'N/A'}\n`;
+      }
+
+      fileContent += `\n${'='.repeat(50)}\nEnd of Report\n`;
+
+      // Create buffer from file content
+      const buffer = Buffer.from(fileContent, 'utf-8');
+
+      // Create filename: [username]_[participant_id]_[week_number].txt
+      const filename = `${username}_${participantId}_${weekNumber}.txt`;
+      const s3Key = `study-results/${filename}`;
+
+      // Upload to S3
+      if (awsManager && awsManager.s3) {
+        await awsManager.s3.putObject({
+          Bucket: awsManager.bucket,
+          Key: s3Key,
+          Body: buffer,
+          ContentType: 'text/plain'
+        }).promise();
+
+        console.log(`✅ Study results saved to S3: s3://${awsManager.bucket}/${s3Key}`);
+        return true;
+      } else {
+        console.warn('⚠️ S3 client not available');
+        return false;
+      }
+
+    } catch (err) {
+      console.error('❌ Error saving study results to S3:', err);
+      return false;
+    }
+  }
+
+  // Handle questionnaire submission - destroy all windows and quit the app
+  ipcMain.on('questionnaire-responses-submitted-final', async (event, responses) => {
+    console.log('✅✅✅ Questionnaire submitted - HANDLER CALLED');
+    console.log('   Responses:', responses);
+
+    // Save results to S3
+    try {
+      await saveStudyResultsToS3(responses);
+    } catch (err) {
+      console.error('⚠️ Error in save function:', err);
+    }
+    
+    // Destroy all windows immediately
+    try {
+      if (questionnaireWindow && !questionnaireWindow.isDestroyed()) {
+        console.log('   Destroying questionnaire window');
+        questionnaireWindow.destroy();
+      }
+    } catch (e) { console.warn('Error destroying questionnaire:', e); }
+    
+    try {
+      if (homeWindow && !homeWindow.isDestroyed()) {
+        console.log('   Destroying home window');
+        homeWindow.destroy();
+      }
+    } catch (e) { console.warn('Error destroying home:', e); }
+    
+    try {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        console.log('   Destroying main window');
+        mainWindow.destroy();
+      }
+    } catch (e) { console.warn('Error destroying main:', e); }
+    
+    console.log('   FORCE QUITTING - process.exit()');
+    // Force exit the entire process
+    process.exit(0);
+  });
+
   ipcMain.handle('get-video-start', () => {
     return sessionMetadata.getVideoStartTimestamp();
     });

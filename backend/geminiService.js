@@ -11,7 +11,7 @@ class GeminiService {
     }
     
     this.genAI = new GoogleGenerativeAI(apiKey);
-    this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    this.model = this.genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' });
     this.conversationHistory = [];
     this.gameTitle = '';
     this.sessionNotes = '';
@@ -19,6 +19,122 @@ class GeminiService {
     this.questionPhase = 0; // Track which phase of questioning
     this.questionCount = 0;
     this.questionsInPhase = 0; // Track questions within current phase (max 2 per phase)
+    this.requestTimeout = 10000; // 10 second timeout for API requests
+    this.maxRetries = 2; // Retry up to 2 times if timeout occurs
+  }
+
+  /**
+   * Generate content with timeout and retry logic with exponential backoff for rate limit/service errors
+   * @param {string} prompt - The prompt to send
+   * @returns {Promise<object>} The response object
+   */
+  async generateWithTimeout(prompt) {
+    let lastError;
+    const maxRetries = 5; // Increased for rate limit/service errors
+    
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('API request timeout')), this.requestTimeout)
+        );
+        
+        const result = await Promise.race([
+          this.model.generateContent(prompt),
+          timeoutPromise
+        ]);
+        
+        return result;
+      } catch (error) {
+        lastError = error;
+        const isRetryable = this.isRetryableError(error);
+        
+        if (!isRetryable) {
+          throw error;
+        }
+        
+        if (attempt < maxRetries - 1) {
+          const errorCode = error.status || error.code || 'unknown';
+          const delay = this.getBackoffDelay(attempt, errorCode);
+          console.warn(`Retryable error (${errorCode}) on attempt ${attempt + 1}/${maxRetries}. Waiting ${delay}ms before retry...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+      }
+    }
+    
+    throw lastError;
+  }
+
+  /**
+   * Determine if an error is retryable
+   */
+  isRetryableError(error) {
+    const errorCode = error.status || error.code;
+    // Retry on: timeout, 429 (TooManyRequests), 503 (ServiceUnavailable), 500-599 (server errors)
+    if (error.message === 'API request timeout') return true;
+    if (errorCode === 429 || errorCode === 503) return true;
+    if (errorCode >= 500 && errorCode < 600) return true;
+    return false;
+  }
+
+  /**
+   * Calculate backoff delay with exponential growth
+   */
+  getBackoffDelay(attempt, errorCode) {
+    let baseDelay = 500; // Base delay in ms
+    
+    // Rate limit (429) gets more aggressive backoff
+    if (errorCode === 429) {
+      baseDelay = 2000; // Start with 2 seconds for rate limits
+    }
+    
+    // Exponential backoff: 500ms, 1s, 2s, 4s, 8s (for normal errors)
+    // Or: 2s, 4s, 8s, 16s, 32s (for rate limits)
+    const delay = baseDelay * Math.pow(2, attempt);
+    
+    // Cap at 15 seconds max
+    return Math.min(delay, 15000);
+  }
+
+  /**
+   * Detect meaningful themes in user's response
+   * Themes: 1) Interest-driven learning, 2) Inward-focused changes, 3) Career, 4) Physical/mental health, 5) Meaningful social connections
+   */
+  detectThemes(userMessage) {
+    const detectedThemes = [];
+    const messageLower = userMessage.toLowerCase();
+
+    // Theme 1: Interest-driven learning (real-world learning inspired by the game)
+    const learningKeywords = /inspired.*to learn|want to learn|got me interested in|made me want to|thinking about learning|curious about.*in real life|interested in.*outside|learning about.*real|want to try|want to practice|got me thinking about learning/i;
+    if (learningKeywords.test(userMessage)) {
+      detectedThemes.push('interest-driven learning');
+    }
+
+    // Theme 2: Inward-focused changes (self-perception, worldview)
+    const inwardKeywords = /change.*perspective|saw.*differently|think.*different|understand.*myself|better at|more confident|less confident|my approach|my thinking|perspective|mindset|realized about|rediscover/i;
+    if (inwardKeywords.test(userMessage)) {
+      detectedThemes.push('inward-focused changes');
+    }
+
+    // Theme 3: Career
+    const careerKeywords = /job|career|work|professional|skills|resume|interview|promotion|salary|industry|business|entrepreneurship|freelance|portfolio/i;
+    if (careerKeywords.test(userMessage)) {
+      detectedThemes.push('career');
+    }
+
+    // Theme 4: Physical or mental health
+    const healthKeywords = /stress|anxiety|mental|health|relaxation|physical|exercise|sleep|calm|focus|concentrate|pressure|tired|fatigue|mindful/i;
+    if (healthKeywords.test(userMessage)) {
+      detectedThemes.push('physical or mental health');
+    }
+
+    // Theme 5: Meaningful social connections
+    const socialKeywords = /friend|family|people|social|together|community|team|group|relationship|connection|community|alone|lonely|interact|cooperate|team|multiplayer|online|together/i;
+    if (socialKeywords.test(userMessage)) {
+      detectedThemes.push('meaningful social connections');
+    }
+
+    return detectedThemes;
   }
 
   /**
@@ -43,20 +159,16 @@ class GeminiService {
     
     const prompt = `You are a thoughtful game experience analyst. The player just finished playing "${gameTitle}".${notesContext}${moodContext}${thinkingContext}
 
-Your role is to conduct a structured post-game reflection interview.
-
 For the FIRST question, ask them to describe what they did during the gameplay.
 This should be:
-- Open-ended and encourage them to narrate their gameplay
-- Focused on the descriptive level (what actions, what happened, what did they attempt?)
-- Avoid asking about feelings/motivation yet - just the actions and gameplay flow
-- Conversational and welcoming
-${thinkingContext ? '\n- You can reference what they were thinking about to make the question relevant to their context' : ''}
+- 2-3 sentences max, conversational
+- Open-ended about their gameplay actions
+- Welcoming and engaging
 
 Generate ONLY the question text, nothing else.`;
 
     try {
-      const result = await this.model.generateContent(prompt);
+      const result = await this.generateWithTimeout(prompt);
       const question = result.response.text().trim();
       this.questionPhase = 0;
       this.questionCount++;
@@ -64,7 +176,7 @@ Generate ONLY the question text, nothing else.`;
       return question;
     } catch (error) {
       console.error('Error generating first question:', error);
-      return `Can you walk me through what you did when you played ${gameTitle}? What were the main things you worked on or attempted?`;
+      return `What did you do in ${gameTitle}?`;
     }
   }
 
@@ -91,6 +203,9 @@ Generate ONLY the question text, nothing else.`;
       parts: [{ text: userMessage }]
     });
 
+    // Detect meaningful themes in the user's response
+    const detectedThemes = this.detectThemes(userMessage);
+
     // Max of 10 valid questions for the interview (2 per phase across 5 phases)
     if (this.questionCount >= 10) {
       return {
@@ -115,54 +230,22 @@ Generate ONLY the question text, nothing else.`;
     switch (this.questionPhase) {
       case 1:
         // Organismic Integration Theory - motivation phase
-        phaseFocus = `Ask about what motivated them to play ${this.gameTitle} today.
-Use Organismic Integration Theory concepts - explore whether their motivation was:
-- Intrinsic (playing because they find it enjoyable, it aligns with their interests)
-- Extrinsic (external pressure, achievement, competition)
-- A combination of both
-
-Reference any session notes if relevant (${this.sessionNotes || 'no notes provided'}).${thinkingContext ? ' Connect to what they mentioned they were thinking about.' : ''}
-Ask a thoughtful, open-ended question about their motivation.`;
+        phaseFocus = `Ask about what motivated their gameplay today. Explore whether it was intrinsic (enjoyment, interest) or extrinsic (goals, external pressure) or a mix of both.`;
         break;
 
       case 2:
         // Dialogical Reflection - interaction with game mechanics
-        phaseFocus = `Ask a Dialogical Reflection question about their interaction with the game.
-In Fleck & Fitzpatrick's framework, Dialogical Reflection involves understanding the dialogue between the player and the game system.
-Focus on:
-- How they interacted with game mechanics
-- What the game was telling them through its feedback
-- How they responded to that feedback
-- Any specific moments where they had to make choices or adapt
-
-Reference their earlier description and any session notes if relevant.${thinkingContext ? ' Consider how what they were thinking about may have influenced their decisions.' : ''}
-Ask about how the game's systems and their player actions created a back-and-forth dialogue.`;
+        phaseFocus = `Ask about how they interacted with the game's mechanics, feedback systems, and how they responded to what the game told them.`;
         break;
 
       case 3:
         // Transformative Reflection
-        phaseFocus = `Ask a Transformative Reflection question.
-In Fleck & Fitzpatrick's framework, Transformative Reflection involves examining how their understanding or approach changed.
-Focus on:
-- Did they learn new strategies or skills?
-- Did their approach change as they played?
-- Did the experience shift how they think about the game or their gameplay?
-- Any "aha moments" or realizations?${thinkingContext ? ' Did the game experience change or relate to what they were thinking about?' : ''}
-
-Reference specific details from what they said earlier and session notes if relevant.`;
+        phaseFocus = `Ask if they learned anything, changed their approach, or had any "aha moments" while playing.`;
         break;
 
       case 4:
         // Critical Reflection
-        phaseFocus = `Ask a Critical Reflection question.
-In Fleck & Fitzpatrick's framework, Critical Reflection involves deeper analysis of values, impact, and meaning.
-Focus on:
-- What does this gameplay experience mean to them?
-- How does it connect to their broader gaming interests or life?${thinkingContext ? ` Did it relate to what they were thinking about (${this.studyContext.mind})?` : ''}
-- What was most meaningful or valuable about the experience?
-- Any broader patterns or insights they noticed?
-
-Reference the full conversation context, their mood context, and any session notes.`;
+        phaseFocus = `Ask what was most meaningful or valuable about their experience and how it connects to their broader gaming interests.`;
         break;
     }
 
@@ -171,41 +254,43 @@ Reference the full conversation context, their mood context, and any session not
       ? this.conversationHistory[this.conversationHistory.length - 2].parts[0].text 
       : '';
 
-    systemPrompt = `You are a thoughtful game experience analyst conducting a structured post-game reflection interview about "${this.gameTitle}".
+    systemPrompt = `You are a thoughtful educator conducting a post-game reflection interview about "${this.gameTitle}".
 
 Player Context:${moodContext}${thinkingContext}
 
 Conversation so far:
 ${conversationText}${notesContext}
 
-PHASE FOCUS:
-${phaseFocus}
+Evaluate if the player's response adequately answers: "${lastQuestion}"
 
-CRITICAL INSTRUCTION: Before proceeding, evaluate if the player's response adequately answers the question.
+IMPORTANT THEMES TO EXPLORE:
+If the player mentions any of these themes, prioritize asking a follow-up question about them:
+- Interest-driven learning (wanting to learn something new, discovering skills or strategies)
+- Inward-focused changes (shifts in self-perception, changes in worldview or approach)
+- Career (professional growth, skills that apply to work, job-related insights)
+- Physical or mental health (relaxation, stress relief, focus, mental clarity)
+- Meaningful social connections (playing with/for others, community, teamwork)
 
-The last question asked: "${lastQuestion}"
-The player's response: "${userMessage}"
+Detected themes in their response: ${detectedThemes.length > 0 ? detectedThemes.join(', ') : 'none'}
 
-Evaluate: Does the response meaningfully address the question? Is it substantive (not just "yes", "no", or off-topic)? Is it focused on the game experience they're being asked about?
-
-If YES (response is valid and on-topic):
-- Provide a brief acknowledgement of what they said (1-2 sentences, supportive and genuine)
-- Then move to the next question based on the phase focus
+If YES (response is valid and substantive - not just "yes"/"no"):
+- Provide a brief acknowledgement (2-3 sentences, reflect back what they said)
+- Ask ONE next question based on this focus: ${phaseFocus}
+${detectedThemes.length > 0 ? `- PRIORITIZE: Try to incorporate or follow up on the detected theme(s): ${detectedThemes.join(', ')}` : ''}
+- The question should be thoughtful and natural (2-3 sentences max)
 - Format as:
 VALID: true
 ACKNOWLEDGEMENT: [your response]
-QUESTION: [your next question]
+QUESTION: [your next question - SINGLE QUESTION ONLY]
 
 If NO (response is off-topic, too brief, or doesn't address the question):
-- Gently redirect them to stay on track
-- Rephrase the original question or ask for clarification
-- Encourage them to be more specific about the game experience
+- Gently redirect them (1-2 sentences)
 - Format as:
 VALID: false
-REDIRECT: [your redirect message asking them to refocus and answer the question more directly]`;
+REDIRECT: [your redirect message]`;
 
     try {
-      const result = await this.model.generateContent(systemPrompt);
+      const result = await this.generateWithTimeout(systemPrompt);
       const responseText = result.response.text();
       
       // Parse the response
@@ -269,7 +354,7 @@ REDIRECT: [your redirect message asking them to refocus and answer the question 
     } catch (error) {
       console.error('Error in sendMessageAndGetNextQuestion:', error);
       return {
-        response: "Could you tell me more about that? I want to make sure I understand your experience.",
+        response: "Tell me more about that.",
         nextQuestion: null,
         countedAsQuestion: false,
         interviewComplete: false
@@ -283,13 +368,13 @@ REDIRECT: [your redirect message asking them to refocus and answer the question 
    */
   async generateClosingMessage() {
     try {
-      const prompt = `Based on this post-game review conversation about "${this.gameTitle}", provide a brief, encouraging closing message (1-2 sentences) thanking the player for their feedback and noting that you hope they continue to enjoy gaming.`;
+      const prompt = `Based on this post-game review conversation about "${this.gameTitle}", provide a brief, encouraging closing message (2-3 sentences) thanking the player for their feedback and their participation.`;
 
-      const result = await this.model.generateContent(prompt);
+      const result = await this.generateWithTimeout(prompt);
       return result.response.text().trim();
     } catch (error) {
       console.error('Error generating closing message:', error);
-      return "Thank you for sharing your feedback! We appreciate your insights.";
+      return "Thank you for sharing your feedback with such thoughtful responses. We really appreciate your insights!";
     }
   }
 

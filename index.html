@@ -545,6 +545,8 @@
     const PAGE_SIZE = 5;
     const LIVE_REFRESH_INTERVAL_MS = 3000;
     let reviewMode = 'none';
+    let studyCondition = null;
+    let studyMode = false;
 
     backBtn.addEventListener('mouseenter', () => {
       backBtn.style.background = 'rgba(255,0,255,0.2)';
@@ -562,7 +564,7 @@
       ipcRenderer.send('open-home');
     });
 
-    ipcRenderer.on('session-data', async (event, username) => {
+    ipcRenderer.on('session-data', async (event, data) => {
       sessionContainer.innerHTML = '';
       loadMoreBtn.style.display = 'none';
       loader.style.display = 'block';
@@ -571,6 +573,11 @@
         liveRefreshTimer = null;
       }
       liveSessionViews.clear();
+
+      // Handle both old format (string username) and new format (object with username, studyCondition, studyMode)
+      const username = typeof data === 'string' ? data : data.username;
+      studyCondition = typeof data === 'object' ? data.studyCondition : null;
+      studyMode = typeof data === 'object' ? data.studyMode : false;
 
       if (!username) {
         loader.style.display = 'none';
@@ -591,7 +598,7 @@
 
         reviewMode = (settings && settings.reviewMode) || 'none';
         isReviewModeEnabled = reviewMode !== 'none';
-        console.log('Settings loaded:', { reviewMode, settings });
+        console.log('Settings loaded:', { reviewMode, settings, studyCondition, studyMode });
 
         const normalizedS3Sessions = s3Sessions.map((session) => ({
           ...session,
@@ -1064,25 +1071,104 @@
       const reviewText = typeof session.postGameReview === 'string' ? session.postGameReview.trim() : '';
       const reviewSavedAt = session.postGameReviewSavedAt || null;
       const reviewLastEditedAt = session.postGameReviewLastEditedAt || null;
+      const reviewCondition = session.postGameReviewCondition || null; // Track what condition generated this review
       let reviewDiv = null;
-      if (reviewText) {
+      
+      // Only hide reviews for control condition in study mode
+      const isControlCondition = studyMode && studyCondition === 'control';
+      // In AI condition, can't start new chats but can view past ones
+      const isAICondition = studyMode && studyCondition === 'prompt-ai';
+      // Check if this review was generated through AI condition
+      const isAIChatReview = reviewCondition === 'prompt-ai';
+      
+      console.log('Review check for session:', session.title, {
+        reviewText: reviewText.substring(0, 50),
+        reviewTextExists: !!reviewText,
+        studyMode,
+        studyCondition,
+        reviewCondition,
+        isControlCondition,
+        isAICondition,
+        isAIChatReview
+      });
+      
+      if (reviewText && !isControlCondition) {
         reviewDiv = document.createElement('div');
         reviewDiv.className = 'session-review';
-        const reviewTitle = document.createElement('strong');
-        reviewTitle.textContent = 'Post-game review';
-        const reviewBody = document.createElement('p');
-        reviewBody.textContent = reviewText;
-        const reviewMeta = document.createElement('div');
-        reviewMeta.className = 'session-review-meta';
-        reviewMeta.textContent = formatReviewTimestamp({
-          postGameReview: reviewText,
-          postGameReviewSavedAt: reviewSavedAt,
-          postGameReviewLastEditedAt: reviewLastEditedAt,
-          videoStartTimestamp: session.videoStartTimestamp,
-        });
-        reviewDiv.appendChild(reviewTitle);
-        reviewDiv.appendChild(reviewBody);
-        reviewDiv.appendChild(reviewMeta);
+        
+        if (isAIChatReview) {
+          // Collapsible review for chat-generated reviews
+          reviewDiv.style.cursor = 'pointer';
+          reviewDiv.style.userSelect = 'none';
+          
+          const reviewHeader = document.createElement('div');
+          reviewHeader.style.display = 'flex';
+          reviewHeader.style.alignItems = 'center';
+          reviewHeader.style.gap = '10px';
+          
+          const toggleIcon = document.createElement('span');
+          toggleIcon.textContent = '▶';
+          toggleIcon.style.display = 'inline-block';
+          toggleIcon.style.width = '20px';
+          
+          const reviewTitle = document.createElement('strong');
+          reviewTitle.textContent = isAIChatReview 
+            ? 'Post-game chat (click to expand)' 
+            : 'Post-game reflection (click to expand)';
+          
+          reviewHeader.appendChild(toggleIcon);
+          reviewHeader.appendChild(reviewTitle);
+          
+          const reviewContent = document.createElement('div');
+          reviewContent.style.display = 'none';
+          reviewContent.style.marginTop = '10px';
+          reviewContent.style.paddingTop = '10px';
+          reviewContent.style.borderTop = '1px solid #ccc';
+          
+          const reviewBody = document.createElement('p');
+          reviewBody.textContent = reviewText;
+          reviewBody.style.whiteSpace = 'pre-wrap';
+          reviewBody.style.wordWrap = 'break-word';
+          
+          const reviewMeta = document.createElement('div');
+          reviewMeta.className = 'session-review-meta';
+          reviewMeta.textContent = formatReviewTimestamp({
+            postGameReview: reviewText,
+            postGameReviewSavedAt: reviewSavedAt,
+            postGameReviewLastEditedAt: reviewLastEditedAt,
+            videoStartTimestamp: session.videoStartTimestamp,
+          });
+          
+          reviewContent.appendChild(reviewBody);
+          reviewContent.appendChild(reviewMeta);
+          
+          reviewDiv.appendChild(reviewHeader);
+          reviewDiv.appendChild(reviewContent);
+          
+          reviewDiv.onclick = (e) => {
+            e.stopPropagation();
+            const isExpanded = reviewContent.style.display !== 'none';
+            reviewContent.style.display = isExpanded ? 'none' : 'block';
+            toggleIcon.textContent = isExpanded ? '▶' : '▼';
+          };
+        } else {
+          // Regular review for light condition
+          const reviewTitle = document.createElement('strong');
+          reviewTitle.textContent = 'Post-game review';
+          const reviewBody = document.createElement('p');
+          reviewBody.textContent = reviewText;
+          const reviewMeta = document.createElement('div');
+          reviewMeta.className = 'session-review-meta';
+          reviewMeta.textContent = formatReviewTimestamp({
+            postGameReview: reviewText,
+            postGameReviewSavedAt: reviewSavedAt,
+            postGameReviewLastEditedAt: reviewLastEditedAt,
+            videoStartTimestamp: session.videoStartTimestamp,
+          });
+          reviewDiv.appendChild(reviewTitle);
+          reviewDiv.appendChild(reviewBody);
+          reviewDiv.appendChild(reviewMeta);
+        }
       }
 
       const editReviewBtn = document.createElement('button');
@@ -1101,6 +1187,8 @@
 
       const upsertReviewUi = (nextText, nextSavedAt, nextLastEditedAt) => {
         const trimmed = (nextText || '').trim();
+        const shouldUseCollapsible = isAIChatReview || isAICondition;
+        
         if (!trimmed) {
           if (reviewDiv) {
             reviewDiv.remove();
@@ -1110,40 +1198,119 @@
         }
 
         if (!reviewDiv) {
+          // Create new review div
           reviewDiv = document.createElement('div');
           reviewDiv.className = 'session-review';
-          const reviewTitle = document.createElement('strong');
-          reviewTitle.textContent = 'Post-game review';
-          const reviewBody = document.createElement('p');
-          reviewBody.textContent = trimmed;
-          const reviewMeta = document.createElement('div');
-          reviewMeta.className = 'session-review-meta';
-          reviewMeta.textContent = formatReviewTimestamp({
-            postGameReview: trimmed,
-            postGameReviewSavedAt: nextSavedAt,
-            postGameReviewLastEditedAt: nextLastEditedAt,
-            videoStartTimestamp: session.videoStartTimestamp,
-          });
-          reviewDiv.appendChild(reviewTitle);
-          reviewDiv.appendChild(reviewBody);
-          reviewDiv.appendChild(reviewMeta);
+          
+          if (shouldUseCollapsible) {
+            // Collapsible format for chat-generated reviews
+            reviewDiv.style.cursor = 'pointer';
+            reviewDiv.style.userSelect = 'none';
+            
+            const reviewHeader = document.createElement('div');
+            reviewHeader.style.display = 'flex';
+            reviewHeader.style.alignItems = 'center';
+            reviewHeader.style.gap = '10px';
+            
+            const toggleIcon = document.createElement('span');
+            toggleIcon.textContent = '▶';
+            toggleIcon.style.display = 'inline-block';
+            toggleIcon.style.width = '20px';
+            
+            const reviewTitle = document.createElement('strong');
+            reviewTitle.textContent = isAIChatReview 
+              ? 'Post-game chat (click to expand)' 
+              : 'Post-game reflection (click to expand)';
+            
+            reviewHeader.appendChild(toggleIcon);
+            reviewHeader.appendChild(reviewTitle);
+            
+            const reviewContent = document.createElement('div');
+            reviewContent.style.display = 'none';
+            reviewContent.style.marginTop = '10px';
+            reviewContent.style.paddingTop = '10px';
+            reviewContent.style.borderTop = '1px solid #ccc';
+            
+            const reviewBody = document.createElement('p');
+            reviewBody.textContent = trimmed;
+            reviewBody.style.whiteSpace = 'pre-wrap';
+            reviewBody.style.wordWrap = 'break-word';
+            
+            const reviewMeta = document.createElement('div');
+            reviewMeta.className = 'session-review-meta';
+            reviewMeta.textContent = formatReviewTimestamp({
+              postGameReview: trimmed,
+              postGameReviewSavedAt: nextSavedAt,
+              postGameReviewLastEditedAt: nextLastEditedAt,
+              videoStartTimestamp: session.videoStartTimestamp,
+            });
+            
+            reviewContent.appendChild(reviewBody);
+            reviewContent.appendChild(reviewMeta);
+            
+            reviewDiv.appendChild(reviewHeader);
+            reviewDiv.appendChild(reviewContent);
+            
+            reviewDiv.onclick = (e) => {
+              e.stopPropagation();
+              const isExpanded = reviewContent.style.display !== 'none';
+              reviewContent.style.display = isExpanded ? 'none' : 'block';
+              toggleIcon.textContent = isExpanded ? '▶' : '▼';
+            };
+          } else {
+            // Regular format for light/normal
+            const reviewTitle = document.createElement('strong');
+            reviewTitle.textContent = 'Post-game review';
+            const reviewBody = document.createElement('p');
+            reviewBody.textContent = trimmed;
+            const reviewMeta = document.createElement('div');
+            reviewMeta.className = 'session-review-meta';
+            reviewMeta.textContent = formatReviewTimestamp({
+              postGameReview: trimmed,
+              postGameReviewSavedAt: nextSavedAt,
+              postGameReviewLastEditedAt: nextLastEditedAt,
+              videoStartTimestamp: session.videoStartTimestamp,
+            });
+            reviewDiv.appendChild(reviewTitle);
+            reviewDiv.appendChild(reviewBody);
+            reviewDiv.appendChild(reviewMeta);
+          }
+          
           sessionDiv.insertBefore(reviewDiv, annotationDiv);
           return;
         }
 
-        const body = reviewDiv.querySelector('p');
-        if (body) {
-          body.textContent = trimmed;
-        }
-
-        const meta = reviewDiv.querySelector('.session-review-meta');
-        if (meta) {
-          meta.textContent = formatReviewTimestamp({
-            postGameReview: trimmed,
-            postGameReviewSavedAt: nextSavedAt,
-            postGameReviewLastEditedAt: nextLastEditedAt,
-            videoStartTimestamp: session.videoStartTimestamp,
-          });
+        // Update existing review div
+        if (shouldUseCollapsible) {
+          // Update collapsible format
+          const body = reviewDiv.querySelector('p');
+          if (body) {
+            body.textContent = trimmed;
+          }
+          const meta = reviewDiv.querySelector('.session-review-meta');
+          if (meta) {
+            meta.textContent = formatReviewTimestamp({
+              postGameReview: trimmed,
+              postGameReviewSavedAt: nextSavedAt,
+              postGameReviewLastEditedAt: nextLastEditedAt,
+              videoStartTimestamp: session.videoStartTimestamp,
+            });
+          }
+        } else {
+          // Update regular format
+          const body = reviewDiv.querySelector('p');
+          if (body) {
+            body.textContent = trimmed;
+          }
+          const meta = reviewDiv.querySelector('.session-review-meta');
+          if (meta) {
+            meta.textContent = formatReviewTimestamp({
+              postGameReview: trimmed,
+              postGameReviewSavedAt: nextSavedAt,
+              postGameReviewLastEditedAt: nextLastEditedAt,
+              videoStartTimestamp: session.videoStartTimestamp,
+            });
+          }
         }
       };
 
@@ -1196,67 +1363,11 @@
       };
 
       if (!(session.source === 'local' && session.isInProgress)) {
-        buttonContainer.appendChild(editReviewBtn);
-      }
-
-      // Add Chat button (only if AI review is enabled)
-      if (reviewMode === 'ai') {
-        const chatBtn = document.createElement('button');
-        chatBtn.textContent = 'Chat';
-        styleActionButton(chatBtn, '#00ffff', true);
-
-        chatBtn.onclick = () => {
-          console.log('Chat button clicked for session:', session.title);
-          try {
-            console.log('Sending open-session-chat with data:', {
-              gameTitle: session.title,
-              username: session.username || activeUsername,
-              fileTimestamp: session.fileTimestamp,
-            });
-            ipcRenderer.send('open-session-chat', {
-              gameTitle: session.title,
-              username: session.username || activeUsername,
-              fileTimestamp: session.fileTimestamp,
-            });
-            console.log('Message sent successfully');
-          } catch (err) {
-            console.error('Error sending chat message:', err);
-          }
-        };
-
-        if (session.source === 'local' && session.isInProgress) {
-          chatBtn.disabled = true;
-          chatBtn.style.opacity = '0.5';
-          chatBtn.style.cursor = 'not-allowed';
-          chatBtn.title = 'Chat is disabled during live sessions.';
+        // Only hide edit review button for control condition in study mode
+        const canShowEditReview = !(studyMode && studyCondition === 'control');
+        if (canShowEditReview) {
+          buttonContainer.appendChild(editReviewBtn);
         }
-
-        buttonContainer.appendChild(chatBtn);
-
-        // Add View Chat History button
-        const viewChatBtn = document.createElement('button');
-        viewChatBtn.textContent = 'View Chat';
-        styleActionButton(viewChatBtn, '#ff00ff', true);
-        viewChatBtn.style.marginLeft = '8px';
-
-        viewChatBtn.onclick = async () => {
-          try {
-            const chatData = await ipcRenderer.invoke('get-session-chat-transcript', {
-              username: session.username || activeUsername,
-              fileTimestamp: session.fileTimestamp
-            });
-            if (chatData && chatData.messages && chatData.messages.length > 0) {
-              showChatTranscriptModal(chatData);
-            } else {
-              alert('No chat history found for this session.');
-            }
-          } catch (err) {
-            console.error('Error loading chat transcript:', err);
-            alert('Failed to load chat history.');
-          }
-        };
-
-        buttonContainer.appendChild(viewChatBtn);
       }
 
       const loadedAnnotations = await Promise.resolve(loadAnnotations(session));

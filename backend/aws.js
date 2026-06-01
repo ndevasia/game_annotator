@@ -209,6 +209,7 @@ class AWSManager {
             postGameReview: metadataObj.postGameReview || '',
             postGameReviewSavedAt: metadataObj.postGameReviewSavedAt || null,
             postGameReviewLastEditedAt: metadataObj.postGameReviewLastEditedAt || null,
+            postGameReviewCondition: metadataObj.postGameReviewCondition || null,
             videoUrl,
             annotationUrl, // null if no annotation
             metadataUrl,

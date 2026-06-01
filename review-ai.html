@@ -231,12 +231,13 @@
         return;
       }
 
-      // Construct review from user responses
-      const userResponses = conversationMessages
-        .filter(m => m.role === 'user')
-        .map(m => m.text)
+      // Construct review from FULL conversation (both AI and user messages)
+      const reviewText = conversationMessages
+        .map(m => {
+          const prefix = m.role === 'user' ? 'You: ' : 'AI: ';
+          return prefix + m.text;
+        })
         .join('\n\n');
-      const reviewText = userResponses || '';
 
       reviewComplete = true;
       ipcRenderer.send('post-game-review-submitted', reviewText);
