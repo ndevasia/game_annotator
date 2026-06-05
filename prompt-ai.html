@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>AI Prompting - Smart Annotation Tips</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      margin: 0;
+      background: linear-gradient(180deg, #0d0221, #1a1a40, #2e0249);
+      color: #eee;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .prompt-panel {
+      background: rgba(20, 20, 40, 0.95);
+      border: 2px solid #ff00ff;
+      border-radius: 8px;
+      padding: 30px;
+      max-width: 600px;
+      box-shadow: 0 0 20px rgba(255,0,255,0.3);
+    }
+
+    h2 {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 1.6em;
+      color: #ff00ff;
+      text-shadow: 0 0 5px #ff00ff, 0 0 10px #ff00ff;
+      margin-top: 0;
+      margin-bottom: 10px;
+      text-align: center;
+    }
+
+    .game-subtitle {
+      text-align: center;
+      color: #00ffff;
+      margin-bottom: 20px;
+      font-style: italic;
+      font-size: 0.95em;
+    }
+
+    .prompt-intro {
+      margin-bottom: 20px;
+      line-height: 1.6;
+      color: #ccc;
+      font-size: 0.95em;
+    }
+
+    .ai-suggestions {
+      background: rgba(100, 0, 100, 0.2);
+      border-left: 4px solid #ff00ff;
+      padding: 15px;
+      margin: 15px 0;
+      border-radius: 4px;
+      line-height: 1.8;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    .ai-suggestions li {
+      margin-bottom: 12px;
+      color: #ddd;
+    }
+
+    .ai-suggestions strong {
+      color: #ff00ff;
+    }
+
+    .loading-spinner {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(255, 0, 255, 0.2);
+      border-top-color: #ff00ff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-right: 10px;
+      vertical-align: middle;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .status-banner {
+      background: rgba(0, 255, 255, 0.1);
+      border: 1px solid #00ffff;
+      padding: 12px;
+      border-radius: 4px;
+      margin-bottom: 15px;
+      text-align: center;
+      color: #00ffff;
+      font-size: 0.9em;
+      display: none;
+    }
+
+    .status-banner.show {
+      display: block;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 25px;
+      justify-content: center;
+    }
+
+    .button-group button {
+      padding: 12px 30px;
+      font-size: 14px;
+      cursor: pointer;
+      border: none;
+      border-radius: 4px;
+      font-weight: bold;
+      transition: all 0.2s;
+    }
+
+    .button-group .prompt-btn {
+      background: rgba(255, 0, 255, 0.1);
+      color: #ff00ff;
+      border: 2px solid #ff00ff;
+    }
+
+    .button-group .prompt-btn:hover {
+      background: rgba(255, 0, 255, 0.3);
+      box-shadow: 0 0 10px #ff00ff;
+    }
+
+    .button-group .prompt-btn.primary {
+      background: #ff00ff;
+      color: #000;
+      border-color: #ff00ff;
+    }
+
+    .button-group .prompt-btn.primary:hover {
+      background: #ff00ff;
+      box-shadow: 0 0 20px #ff00ff;
+    }
+  </style>
+</head>
+<body>
+  <div class="prompt-panel">
+    <h2>AI-Powered Annotation Guide</h2>
+    <div id="game-subtitle" class="game-subtitle"></div>
+    
+    <div class="status-banner" id="status-banner"></div>
+
+    <div class="prompt-intro">
+      <p>Based on the game you selected, here are personalized tips for what you might want to annotate:</p>
+    </div>
+
+    <div id="suggestions-container">
+      <div class="ai-suggestions">
+        <div style="text-align: center; padding: 20px;">
+          <div class="loading-spinner"></div>
+          <span>Generating AI suggestions...</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="button-group">
+      <button type="button" class="prompt-btn" onclick="cancelPrompt()">Back to Game Menu</button>
+      <button type="button" class="prompt-btn primary" onclick="startSession()">Start Recording</button>
+    </div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+    let sessionData = null;
+    let aiSuggestionsGenerated = false;
+
+    // Listen for session data from main process
+    ipcRenderer.on('session-data', (event, data) => {
+      console.log('Received session data for AI prompting:', data);
+      sessionData = data;
+      
+      if (sessionData.gameTitle) {
+        document.getElementById('game-subtitle').textContent = `Game: ${sessionData.gameTitle}`;
+        generateAISuggestions();
+      }
+    });
+
+    function generateAISuggestions() {
+      console.log('Requesting AI suggestions for game:', sessionData.gameTitle);
+      
+      ipcRenderer.send('generate-ai-suggestions', {
+        gameTitle: sessionData.gameTitle
+      });
+
+      ipcRenderer.once('ai-suggestions-ready', (event, data) => {
+        console.log('Received AI suggestions:', data);
+        aiSuggestionsGenerated = true;
+
+        if (data.error) {
+          console.error('Error generating suggestions:', data.error);
+          displayErrorSuggestions(data.error);
+          return;
+        }
+
+        displayAISuggestions(data.suggestions);
+      });
+
+      // Timeout after 10 seconds - show default suggestions
+      setTimeout(() => {
+        if (!aiSuggestionsGenerated) {
+          console.warn('AI suggestion generation timed out, showing defaults');
+          displayDefaultSuggestions();
+        }
+      }, 10000);
+    }
+
+    function displayAISuggestions(suggestions) {
+      const container = document.getElementById('suggestions-container');
+      
+      if (!suggestions || suggestions.length === 0) {
+        displayDefaultSuggestions();
+        return;
+      }
+
+      let html = '<ul class="ai-suggestions">';
+      suggestions.forEach(suggestion => {
+        html += `<li><strong>📌 ${suggestion.category}:</strong> ${suggestion.text}</li>`;
+      });
+      html += '</ul>';
+
+      container.innerHTML = html;
+    }
+
+    function displayDefaultSuggestions() {
+      const suggestions = [
+        { category: 'Successes', text: 'Note moments where you accomplish goals or overcome challenges' },
+        { category: 'Decisions', text: 'Mark key choices and why you made them' },
+        { category: 'Struggles', text: 'Capture moments where you struggled or made mistakes' },
+        { category: 'Discovery', text: 'Note when you learn something new about the game' },
+        { category: 'Emotions', text: 'Record significant emotional moments (excitement, frustration, etc.)' },
+        { category: 'Strategy', text: 'Annotate your approach and tactics' }
+      ];
+
+      displayAISuggestions(suggestions);
+    }
+
+    function displayErrorSuggestions(error) {
+      console.error('AI error:', error);
+      const container = document.getElementById('suggestions-container');
+      container.innerHTML = `
+        <div class="ai-suggestions">
+          <p style="color: #ffaa00;">⚠️ Could not generate AI suggestions (${error})</p>
+          <p>Here are some general tips:</p>
+          <ul style="margin-top: 10px;">
+            <li><strong>Successes:</strong> Moments where you did well</li>
+            <li><strong>Challenges:</strong> Difficult moments or mistakes</li>
+            <li><strong>Decisions:</strong> Key choices you made</li>
+            <li><strong>Learning:</strong> New discoveries</li>
+            <li><strong>Emotions:</strong> Notable feelings</li>
+            <li><strong>Strategy:</strong> Your approach</li>
+          </ul>
+        </div>
+      `;
+    }
+
+    function startSession() {
+      console.log('User confirmed AI prompt - proceeding with recording');
+      ipcRenderer.send('ai-prompt-confirmed');
+      ipcRenderer.send('hide-prompt');
+    }
+
+    function cancelPrompt() {
+      console.log('User cancelled AI prompt');
+      ipcRenderer.send('hide-prompt');
+    }
+  </script>
+</body>
+</html>

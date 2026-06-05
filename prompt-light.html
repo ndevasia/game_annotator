@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Light Prompting - Annotation Tips</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      margin: 0;
+      background: linear-gradient(180deg, #0d0221, #1a1a40, #2e0249);
+      color: #eee;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .prompt-panel {
+      background: rgba(20, 20, 40, 0.95);
+      border: 2px solid #00ffff;
+      border-radius: 8px;
+      padding: 30px;
+      max-width: 600px;
+      box-shadow: 0 0 20px rgba(0,255,255,0.3);
+    }
+
+    h2 {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 1.6em;
+      color: #00ffff;
+      text-shadow: 0 0 5px #00ffff, 0 0 10px #0088ff;
+      margin-top: 0;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+
+    .prompt-intro {
+      margin-bottom: 20px;
+      line-height: 1.6;
+      color: #ccc;
+    }
+
+    .prompt-list {
+      background: rgba(0, 50, 80, 0.6);
+      border-left: 4px solid #ff00ff;
+      padding: 15px;
+      margin: 15px 0;
+      border-radius: 4px;
+      line-height: 1.8;
+    }
+
+    .prompt-list li {
+      margin-bottom: 10px;
+      color: #ddd;
+    }
+
+    .prompt-list strong {
+      color: #00ffff;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 25px;
+      justify-content: center;
+    }
+
+    .button-group button {
+      padding: 12px 30px;
+      font-size: 14px;
+      cursor: pointer;
+      border: none;
+      border-radius: 4px;
+      font-weight: bold;
+      transition: all 0.2s;
+    }
+
+    .button-group .prompt-btn {
+      background: rgba(0, 255, 255, 0.1);
+      color: #00ffff;
+      border: 2px solid #00ffff;
+    }
+
+    .button-group .prompt-btn:hover {
+      background: rgba(0, 255, 255, 0.3);
+      box-shadow: 0 0 10px #00ffff;
+    }
+
+    .button-group .prompt-btn.primary {
+      background: #00ffff;
+      color: #000;
+      border-color: #00ffff;
+    }
+
+    .button-group .prompt-btn.primary:hover {
+      background: #00ffff;
+      box-shadow: 0 0 20px #00ffff;
+    }
+  </style>
+</head>
+<body>
+  <div class="prompt-panel">
+    <h2>What to Annotate</h2>
+    
+    <div class="prompt-intro">
+      <p>As you play, consider noting down observations about:</p>
+    </div>
+
+    <ul class="prompt-list">
+      <li><strong>Successes:</strong> Moments where you did something well or achieved a goal</li>
+      <li><strong>Challenges:</strong> Moments where you struggled or made a mistake</li>
+      <li><strong>Decision Points:</strong> Key choices you made and why you made them</li>
+      <li><strong>Learning Moments:</strong> Times when you discovered something new about the game</li>
+      <li><strong>Emotions:</strong> Notable feelings during important moments (excited, frustrated, confident, etc.)</li>
+      <li><strong>Strategy:</strong> Your approach or tactics during different phases of the game</li>
+    </ul>
+
+    <div class="button-group">
+      <button type="button" class="prompt-btn" onclick="cancelPrompt()">Back to Game Menu</button>
+      <button type="button" class="prompt-btn primary" onclick="startSession()">I'm Ready - Start Recording</button>
+    </div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    function startSession() {
+      console.log('User confirmed - proceeding with recording');
+      ipcRenderer.send('light-prompt-confirmed');
+      ipcRenderer.send('hide-prompt');
+    }
+
+    function cancelPrompt() {
+      console.log('User cancelled prompt');
+      ipcRenderer.send('hide-prompt');
+      // This will return user to home without starting session
+    }
+  </script>
+</body>
+</html>

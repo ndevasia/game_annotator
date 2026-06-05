@@ -14,6 +14,14 @@
 
   <script>
     const { ipcRenderer } = require('electron');
+    
+    let studyCondition = null;
+    let lastAnnotationTime = Date.now();
+    let idleCheckInterval = null;
+    const IDLE_TIMEOUT = 300 * 1000; // 5 minutes
+    const NOTIFICATION_DURATION = 10000; // 10 seconds
+
+    console.log('📋 Overlay initialized - idle timeout set to 5 minutes');
 
     /**
      * Abandon the note and hide the overlay.
@@ -28,6 +36,7 @@
       if (!note.trim()) return; // optional: ignore empty notes
       const timestamp = Date.now();
       ipcRenderer.send('save-annotation', { note, timestamp });
+      lastAnnotationTime = Date.now(); // Reset idle timer
       hideOverlay();
     }
 
@@ -62,11 +71,53 @@
       const annotationUI = document.getElementById('annotation-ui');
       if (annotationUI) annotationUI.style.display = 'flex';
       noteInput.focus();
+      // Reset idle timer when user is actively annotating
+      lastAnnotationTime = Date.now();
     });
 
     ipcRenderer.on('emoji-reaction', (event, emoji) => {
       ipcRenderer.send('show-emoji', emoji);
     });
+
+    // Listen for study condition
+    ipcRenderer.on('set-study-condition', (event, condition) => {
+      studyCondition = condition;
+      console.log('📨 Study condition received in overlay:', studyCondition);
+      
+      // Start checking for idle if in AI condition
+      if (studyCondition === 'prompt-ai') {
+        console.log('✅ AI condition detected - starting idle check');
+        startIdleCheck();
+      } else {
+        console.log('ℹ️ Not AI condition:', studyCondition);
+      }
+    });
+
+    function startIdleCheck() {
+      // Check every 5 seconds if we've been idle
+      if (idleCheckInterval) clearInterval(idleCheckInterval);
+      
+      console.log('⏱️ Idle check started at:', new Date(lastAnnotationTime).toLocaleTimeString());
+      
+      idleCheckInterval = setInterval(() => {
+        const timeSinceLastAnnotation = Date.now() - lastAnnotationTime;
+        const secondsSinceAnnotation = Math.floor(timeSinceLastAnnotation / 1000);
+        console.log(`⏱️ Time since last annotation: ${secondsSinceAnnotation} seconds (${timeSinceLastAnnotation}ms)`);
+        
+        if (timeSinceLastAnnotation >= IDLE_TIMEOUT) {
+          console.log('🔔 Idle threshold reached - showing reminder');
+          showIdleNotification();
+          // Reset the timer so we don't show notification again immediately
+          lastAnnotationTime = Date.now();
+        }
+      }, 5000); // Check every 5 seconds
+    }
+
+    function showIdleNotification() {
+      console.log('📢 Triggering idle reminder to recent-notes');
+      // Send message to main process to show reminder in recent-notes window
+      ipcRenderer.send('show-idle-reminder-request');
+    }
   </script>
 </body>
 </html>

@@ -2,233 +2,11 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Post-Game Review</title>
+  <title>AI Review - Post-Game Chat</title>
   <link rel="stylesheet" href="style.css">
-  <style>
-    body {
-      margin: 0;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: linear-gradient(180deg, #0d0221, #1a1a40, #2e0249);
-      color: #ffffff;
-      font-family: "Share Tech Mono", monospace;
-      padding: 20px;
-      box-sizing: border-box;
-    }
-
-    .panel {
-      width: min(900px, 95vw);
-      background: rgba(8, 10, 32, 0.92);
-      border: 2px solid rgba(0, 255, 255, 0.55);
-      border-radius: 14px;
-      box-shadow: 0 0 25px rgba(0, 255, 255, 0.2);
-      padding: 20px;
-      display: flex;
-      flex-direction: column;
-      max-height: 90vh;
-    }
-
-    h2 {
-      margin: 0 0 10px 0;
-      color: #00ffff;
-      font-weight: normal;
-      text-shadow: 0 0 6px #00ffff;
-    }
-
-    p {
-      margin: 0 0 14px 0;
-      color: #cde6f5;
-      line-height: 1.4;
-    }
-
-    .chatbot-container {
-      display: flex;
-      flex-direction: column;
-      flex: 1;
-      min-height: 300px;
-      max-height: 500px;
-      overflow: hidden;
-    }
-
-    .messages {
-      flex: 1;
-      overflow-y: auto;
-      margin-bottom: 15px;
-      padding-right: 8px;
-    }
-
-    .messages::-webkit-scrollbar {
-      width: 6px;
-    }
-
-    .messages::-webkit-scrollbar-track {
-      background: rgba(0, 255, 255, 0.1);
-      border-radius: 3px;
-    }
-
-    .messages::-webkit-scrollbar-thumb {
-      background: rgba(0, 255, 255, 0.5);
-      border-radius: 3px;
-    }
-
-    .message {
-      margin-bottom: 12px;
-      padding: 10px 12px;
-      border-radius: 8px;
-      line-height: 1.4;
-      word-wrap: break-word;
-    }
-
-    .message.user {
-      background: rgba(255, 0, 255, 0.2);
-      border-left: 3px solid #ff00ff;
-      margin-left: 30px;
-    }
-
-    .message.assistant {
-      background: rgba(0, 255, 255, 0.15);
-      border-left: 3px solid #00ffff;
-      margin-right: 30px;
-      color: #cde6f5;
-    }
-
-    .message.system {
-      background: rgba(100, 50, 150, 0.2);
-      border-left: 3px solid #aa00ff;
-      margin-right: 30px;
-      color: #ddaaff;
-      font-size: 13px;
-    }
-
-    .message.loading {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      color: #00ffff;
-    }
-
-    .spinner {
-      display: inline-block;
-      width: 12px;
-      height: 12px;
-      border: 2px solid rgba(0, 255, 255, 0.3);
-      border-top-color: #00ffff;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
-    .input-area {
-      display: flex;
-      gap: 10px;
-    }
-
-    .input-area.hidden {
-      display: none;
-    }
-
-    #user-input {
-      flex: 1;
-      border: 1px solid rgba(0, 255, 255, 0.7);
-      border-radius: 8px;
-      background: rgba(0, 0, 0, 0.6);
-      color: #ffffff;
-      padding: 10px;
-      font-family: inherit;
-      font-size: 14px;
-      line-height: 1.4;
-    }
-
-    #user-input::placeholder {
-      color: #666688;
-    }
-
-    #user-input:focus {
-      outline: none;
-      border-color: #ff00ff;
-      box-shadow: 0 0 8px rgba(255, 0, 255, 0.3);
-    }
-
-    .button-group {
-      display: flex;
-      justify-content: flex-end;
-      gap: 10px;
-      margin-top: 15px;
-    }
-
-    button {
-      padding: 8px 14px;
-      border-radius: 6px;
-      border: 1px solid #00ffff;
-      background: rgba(0, 0, 0, 0.5);
-      color: #00ffff;
-      cursor: pointer;
-      font-family: inherit;
-      font-size: 13px;
-      transition: all 0.2s;
-    }
-
-    button:hover:not(:disabled) {
-      border-color: #00ffff;
-      box-shadow: 0 0 8px rgba(0, 255, 255, 0.4);
-    }
-
-    button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
-    button.primary {
-      border-color: #ff00ff;
-      color: #ff00ff;
-    }
-
-    button.primary:hover:not(:disabled) {
-      border-color: #ff00ff;
-      box-shadow: 0 0 8px rgba(255, 0, 255, 0.4);
-    }
-
-    .error {
-      background: rgba(255, 0, 0, 0.2);
-      border-left: 3px solid #ff0000;
-      color: #ff6666;
-    }
-
-    .fallback-ui {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-
-    .fallback-ui textarea {
-      width: 100%;
-      min-height: 180px;
-      resize: vertical;
-      border: 1px solid rgba(0, 255, 255, 0.7);
-      border-radius: 8px;
-      background: rgba(0, 0, 0, 0.6);
-      color: #ffffff;
-      padding: 10px;
-      box-sizing: border-box;
-      font-family: inherit;
-      font-size: 14px;
-      line-height: 1.45;
-    }
-
-    .fallback-ui textarea:focus {
-      outline: none;
-      border-color: #ff00ff;
-      box-shadow: 0 0 8px rgba(255, 0, 255, 0.3);
-    }
-  </style>
 </head>
-<body>
-  <div class="panel">
+<body class="review-page">
+  <div class="review-panel">
     <h2 id="panel-title">Post-Game Review</h2>
 
     <!-- Chatbot interface -->
@@ -239,20 +17,14 @@
         </div>
       </div>
       <div class="input-area" id="input-area">
-        <input type="text" id="user-input" placeholder="Your response..." />
-        <button type="button" id="send-btn" onclick="sendUserMessage()" disabled>Send</button>
+        <input type="text" id="user-input" class="review-input" placeholder="Your response..." />
+        <button type="button" id="send-btn" class="review-btn" onclick="sendUserMessage()" disabled>Send</button>
       </div>
     </div>
 
-    <!-- Fallback textarea (hidden by default) -->
-    <div id="fallback-ui" class="fallback-ui" style="display: none;">
-      <p>Summarize the session in one paragraph. This review will be saved with the video and notes.</p>
-      <textarea id="review-input" placeholder="Write a reflection about your gameplay experience today!"></textarea>
-    </div>
-
     <div class="button-group" id="button-group">
-      <button type="button" id="skip-btn" onclick="skipReview()">Skip</button>
-      <button type="button" class="primary" id="complete-btn" onclick="completeReview()" disabled>Complete Review</button>
+      <button type="button" class="review-btn" id="skip-btn" onclick="skipReview()">Skip</button>
+      <button type="button" class="review-btn primary" id="complete-btn" onclick="completeReview()" disabled>Complete Review</button>
     </div>
   </div>
 
@@ -279,12 +51,7 @@
         document.getElementById('complete-btn').textContent = 'Close';
       }
       
-      if (data.reviewMode === 'ai' && data.geminiAvailable) {
-        initializeChatbot();
-      } else {
-        console.warn('Using fallback UI (text review)');
-        showFallbackUI();
-      }
+      initializeChatbot();
     });
 
     function initializeChatbot() {
@@ -293,14 +60,14 @@
       
       ipcRenderer.send('generate-initial-questions', {
         gameTitle: sessionData.gameTitle,
-        annotations: sessionData.annotations
+        annotations: sessionData.annotations,
+        studyContext: sessionData.studyMetadata  // Pass mood and mind context
       });
 
       ipcRenderer.once('initial-question-ready', (event, data) => {
         if (data.error) {
           console.error('Error generating question:', data.error);
           showInitialErrorMessage(data.error);
-          showFallbackUI();
           return;
         }
 
@@ -309,7 +76,6 @@
         
         if (!currentQuestion) {
           showInitialErrorMessage('Could not generate first question');
-          showFallbackUI();
           return;
         }
 
@@ -333,12 +99,6 @@
         document.getElementById('send-btn').disabled = false;
         document.getElementById('complete-btn').disabled = false;
       });
-    }
-
-    function showFallbackUI() {
-      document.getElementById('chatbot-ui').style.display = 'none';
-      document.getElementById('fallback-ui').style.display = 'flex';
-      document.getElementById('complete-btn').disabled = false;
     }
 
     function showInitialErrorMessage(errorMsg) {
@@ -434,8 +194,8 @@
               document.getElementById('user-input').focus();
               document.getElementById('send-btn').disabled = false;
             }, 400);
-          } else {
-            // Interview is complete
+          } else if (data.interviewComplete) {
+            // Interview is complete (reached 10 valid questions limit)
             interviewComplete = true;
             setTimeout(() => {
               const closingMsg = document.createElement('div');
@@ -454,6 +214,11 @@
               document.getElementById('user-input').disabled = true;
               document.getElementById('user-input').placeholder = 'Review complete...';
             }, 400);
+          } else {
+            // Redirect or redirect scenario - re-enable input so user can try again
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            document.getElementById('user-input').focus();
+            document.getElementById('send-btn').disabled = false;
           }
         }
       });
@@ -466,19 +231,13 @@
         return;
       }
 
-      let reviewText = '';
-
-      // Use fallback UI if visible
-      if (document.getElementById('fallback-ui').style.display !== 'none') {
-        reviewText = document.getElementById('review-input').value.trim();
-      } else {
-        // Construct review from user responses
-        const userResponses = conversationMessages
-          .filter(m => m.role === 'user')
-          .map(m => m.text)
-          .join('\n\n');
-        reviewText = userResponses || '';
-      }
+      // Construct review from FULL conversation (both AI and user messages)
+      const reviewText = conversationMessages
+        .map(m => {
+          const prefix = m.role === 'user' ? 'You: ' : 'AI: ';
+          return prefix + m.text;
+        })
+        .join('\n\n');
 
       reviewComplete = true;
       ipcRenderer.send('post-game-review-submitted', reviewText);
@@ -530,3 +289,5 @@
 
     // Session data is sent automatically by main.js, just wait for it
   </script>
+</body>
+</html>

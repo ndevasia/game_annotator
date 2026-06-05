@@ -11,3 +11,6 @@ config.json
 dist/
 icons/
 ndevasia/
+backend/script.py
+backend/s3_data/
+s3_data/*

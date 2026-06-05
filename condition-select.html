@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Study Mode - Select Condition</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+      background: linear-gradient(180deg, #0d0221, #1a1a40, #2e0249);
+      font-family: Arial, sans-serif;
+    }
+
+    .condition-selection-container {
+      background: rgba(20, 20, 40, 0.95);
+      border: 2px solid #ff00ff;
+      border-radius: 12px;
+      padding: 40px;
+      max-width: 700px;
+      box-shadow: 0 0 30px rgba(255, 0, 255, 0.3);
+      text-align: center;
+    }
+
+    h1 {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 1.8em;
+      color: #ff00ff;
+      text-shadow: 0 0 10px #ff00ff;
+      margin-bottom: 10px;
+    }
+
+    .subtitle {
+      color: #aaa;
+      margin-bottom: 30px;
+      font-size: 0.95em;
+    }
+
+    .condition-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+      justify-content: center;
+    }
+
+    .condition-button {
+      padding: 25px;
+      border: 2px solid #ff00ff;
+      border-radius: 8px;
+      background: rgba(100, 0, 100, 0.15);
+      color: #ff00ff;
+      font-size: 1em;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-family: 'Share Tech Mono', monospace;
+      text-align: left;
+    }
+
+    .condition-button:hover {
+      background: rgba(255, 0, 255, 0.25);
+      box-shadow: 0 0 20px rgba(255, 0, 255, 0.5);
+      transform: translateX(5px);
+    }
+
+    .condition-button:active {
+      transform: translateX(0);
+    }
+
+    .condition-title {
+      font-size: 1.1em;
+      margin-bottom: 5px;
+    }
+
+    .condition-description {
+      font-size: 0.8em;
+      opacity: 0.7;
+      font-weight: normal;
+    }
+
+    .back-button {
+      display: inline-block;
+      margin-top: 20px;
+      padding: 10px 20px;
+      border: 1px solid #00ffff;
+      border-radius: 4px;
+      background: rgba(0, 100, 100, 0.15);
+      color: #00ffff;
+      font-size: 0.9em;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-family: 'Share Tech Mono', monospace;
+    }
+
+    .back-button:hover {
+      background: rgba(0, 255, 255, 0.25);
+      box-shadow: 0 0 15px rgba(0, 255, 255, 0.4);
+    }
+  </style>
+</head>
+<body>
+  <div class="condition-selection-container">
+    <h1>Study Mode</h1>
+    <p class="subtitle">Select your session condition</p>
+    
+    <div class="condition-buttons">
+      <button class="condition-button" onclick="selectCondition('control')">
+        <div class="condition-title">1. Control</div>
+        <div class="condition-description">No extra prompting, no post-game review</div>
+      </button>
+      <button class="condition-button" onclick="selectCondition('prompt-light')">
+        <div class="condition-title">2. Light Prompting</div>
+        <div class="condition-description">Annotation tips before recording, text review after</div>
+      </button>
+      <button class="condition-button" onclick="selectCondition('prompt-ai')">
+        <div class="condition-title">3. AI Prompting</div>
+        <div class="condition-description">AI-generated tips before recording, AI review after</div>
+      </button>
+    </div>
+
+    <button class="back-button" onclick="goBack()">← Back to Mode Selection</button>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    function selectCondition(condition) {
+      console.log(`User selected condition: ${condition}`);
+      ipcRenderer.send('condition-selected', condition);
+    }
+
+    function goBack() {
+      ipcRenderer.send('condition-select-close');
+    }
+  </script>
+</body>
+</html>

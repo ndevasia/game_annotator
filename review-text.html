@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Text Review - Post-Game Summary</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="review-page">
+  <div class="review-panel">
+    <h2>Post-Game Review</h2>
+
+    <div class="review-form">
+      <p>Summarize the session in one paragraph. This review will be saved with the video and notes.</p>
+      <textarea id="review-input" class="review-textarea" placeholder="Write a reflection about your gameplay experience today!"></textarea>
+    </div>
+
+    <div class="button-group">
+      <button type="button" class="review-btn" id="skip-btn" onclick="skipReview()">Skip</button>
+      <button type="button" class="review-btn primary" id="complete-btn" onclick="completeReview()">Complete Review</button>
+    </div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+    let sessionData = null;
+    let reviewComplete = false;
+
+    // Listen for session data from main process
+    ipcRenderer.on('session-data', (event, data) => {
+      console.log('Received session data:', data);
+      sessionData = data;
+    });
+
+    function completeReview() {
+      const reviewText = document.getElementById('review-input').value.trim();
+      reviewComplete = true;
+      ipcRenderer.send('post-game-review-submitted', reviewText);
+    }
+
+    function skipReview() {
+      reviewComplete = true;
+      ipcRenderer.send('post-game-review-submitted', '');
+    }
+
+    // Handle window close
+    window.addEventListener('beforeunload', () => {
+      if (!reviewComplete) {
+        ipcRenderer.send('post-game-review-window-closed');
+      }
+    });
+
+    // Focus on input when ready
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('review-input').focus();
+    });
+
+    // Session data is sent automatically by main.js, just wait for it
+  </script>
+</body>
+</html>

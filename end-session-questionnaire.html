@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>End of Session Questionnaire</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    body {
+      padding: 30px;
+      background: linear-gradient(180deg, #0d0221, #1a1a40, #2e0249);
+      color: #ccc;
+      font-family: Arial, sans-serif;
+    }
+
+    .questionnaire-container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: rgba(20, 20, 40, 0.95);
+      border: 2px solid #00ffff;
+      border-radius: 12px;
+      padding: 40px;
+      box-shadow: 0 0 30px rgba(0, 255, 255, 0.3);
+    }
+
+    h1 {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 2em;
+      color: #00ffff;
+      text-shadow: 0 0 10px #00ffff;
+      text-align: center;
+      margin-bottom: 10px;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #aaa;
+      margin-bottom: 40px;
+      font-size: 0.95em;
+    }
+
+    .likert-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75em;
+      color: #666;
+      margin-bottom: 30px;
+      padding: 0 2px;
+    }
+
+    .question-group {
+      margin-bottom: 25px;
+      background: rgba(0, 50, 80, 0.15);
+      padding: 20px;
+      border-radius: 6px;
+      border-left: 3px solid #ff00ff;
+    }
+
+    .question-label {
+      color: #ccc;
+      font-weight: 500;
+      margin-bottom: 12px;
+    }
+
+    .likert-scale {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .likert-option {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .likert-option input[type="radio"] {
+      cursor: pointer;
+      width: 20px;
+      height: 20px;
+      accent-color: #00ffff;
+    }
+
+    .likert-option label {
+      font-size: 0.75em;
+      color: #999;
+      text-align: center;
+      cursor: pointer;
+      transition: color 0.3s;
+    }
+
+    .likert-option input[type="radio"]:checked + label {
+      color: #00ffff;
+      font-weight: bold;
+    }
+
+    .likert-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75em;
+      color: #666;
+      margin-bottom: 15px;
+      padding: 0 2px;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 15px;
+      justify-content: center;
+      margin-top: 50px;
+    }
+
+    button {
+      padding: 12px 40px;
+      border: 1px solid #00ffff;
+      border-radius: 4px;
+      background: rgba(0, 100, 100, 0.2);
+      color: #00ffff;
+      font-size: 1em;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-family: 'Share Tech Mono', monospace;
+    }
+
+    button:hover {
+      background: rgba(0, 255, 255, 0.2);
+      box-shadow: 0 0 15px rgba(0, 255, 255, 0.5);
+    }
+
+    .error-message {
+      color: #ff4444;
+      text-align: center;
+      margin-bottom: 20px;
+      font-size: 0.9em;
+    }
+
+    .progress-info {
+      text-align: center;
+      color: #888;
+      font-size: 0.85em;
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="questionnaire-container">
+    <h1>End of Session Questionnaire</h1>
+    <p class="subtitle">Please rate your experience using the scale provided</p>
+    <div class="progress-info" id="progressInfo"></div>
+    <div class="error-message" id="errorMessage"></div>
+
+    <form onsubmit="handleSubmit(event)">
+      <div class="likert-labels">
+        <span>Strongly Disagree</span>
+        <span>Strongly Agree</span>
+      </div>
+
+      <!-- Reflection Questions -->
+      <div class="question-group">
+        <div class="question-label">Using this technology made me conscious of my behaviours</div>
+        <div class="likert-scale">
+          <div class="likert-option"><input type="radio" id="ref1_1" name="ref1" value="1"><label for="ref1_1">1</label></div>
+          <div class="likert-option"><input type="radio" id="ref1_2" name="ref1" value="2"><label for="ref1_2">2</label></div>
+          <div class="likert-option"><input type="radio" id="ref1_3" name="ref1" value="3"><label for="ref1_3">3</label></div>
+          <div class="likert-option"><input type="radio" id="ref1_4" name="ref1" value="4"><label for="ref1_4">4</label></div>
+          <div class="likert-option"><input type="radio" id="ref1_5" name="ref1" value="5"><label for="ref1_5">5</label></div>
+        </div>
+      </div>
+
+      <div class="question-group">
+        <div class="question-label">This technology helps me to be able to reflect more easily on my actions</div>
+        <div class="likert-scale">
+          <div class="likert-option"><input type="radio" id="ref2_1" name="ref2" value="1"><label for="ref2_1">1</label></div>
+          <div class="likert-option"><input type="radio" id="ref2_2" name="ref2" value="2"><label for="ref2_2">2</label></div>
+          <div class="likert-option"><input type="radio" id="ref2_3" name="ref2" value="3"><label for="ref2_3">3</label></div>
+          <div class="likert-option"><input type="radio" id="ref2_4" name="ref2" value="4"><label for="ref2_4">4</label></div>
+          <div class="likert-option"><input type="radio" id="ref2_5" name="ref2" value="5"><label for="ref2_5">5</label></div>
+        </div>
+      </div>
+
+      <div class="question-group">
+        <div class="question-label">This technology supports reflecting on my behaviours as an ongoing activity</div>
+        <div class="likert-scale">
+          <div class="likert-option"><input type="radio" id="ref3_1" name="ref3" value="1"><label for="ref3_1">1</label></div>
+          <div class="likert-option"><input type="radio" id="ref3_2" name="ref3" value="2"><label for="ref3_2">2</label></div>
+          <div class="likert-option"><input type="radio" id="ref3_3" name="ref3" value="3"><label for="ref3_3">3</label></div>
+          <div class="likert-option"><input type="radio" id="ref3_4" name="ref3" value="4"><label for="ref3_4">4</label></div>
+          <div class="likert-option"><input type="radio" id="ref3_5" name="ref3" value="5"><label for="ref3_5">5</label></div>
+        </div>
+      </div>
+
+      <!-- Rumination Questions -->
+      <div class="question-group">
+        <div class="question-label">This technology can put me in a negative thought cycle</div>
+        <div class="likert-scale">
+          <div class="likert-option"><input type="radio" id="rum1_1" name="rum1" value="1"><label for="rum1_1">1</label></div>
+          <div class="likert-option"><input type="radio" id="rum1_2" name="rum1" value="2"><label for="rum1_2">2</label></div>
+          <div class="likert-option"><input type="radio" id="rum1_3" name="rum1" value="3"><label for="rum1_3">3</label></div>
+          <div class="likert-option"><input type="radio" id="rum1_4" name="rum1" value="4"><label for="rum1_4">4</label></div>
+          <div class="likert-option"><input type="radio" id="rum1_5" name="rum1" value="5"><label for="rum1_5">5</label></div>
+        </div>
+      </div>
+
+      <div class="question-group">
+        <div class="question-label">This technology makes me more likely to ruminate about a past situation</div>
+        <div class="likert-scale">
+          <div class="likert-option"><input type="radio" id="rum2_1" name="rum2" value="1"><label for="rum2_1">1</label></div>
+          <div class="likert-option"><input type="radio" id="rum2_2" name="rum2" value="2"><label for="rum2_2">2</label></div>
+          <div class="likert-option"><input type="radio" id="rum2_3" name="rum2" value="3"><label for="rum2_3">3</label></div>
+          <div class="likert-option"><input type="radio" id="rum2_4" name="rum2" value="4"><label for="rum2_4">4</label></div>
+          <div class="likert-option"><input type="radio" id="rum2_5" name="rum2" value="5"><label for="rum2_5">5</label></div>
+        </div>
+      </div>
+
+      <div class="question-group">
+        <div class="question-label">Using this technology can make me ruminate or dwell over things that happened for a long time afterward</div>
+        <div class="likert-scale">
+          <div class="likert-option"><input type="radio" id="rum3_1" name="rum3" value="1"><label for="rum3_1">1</label></div>
+          <div class="likert-option"><input type="radio" id="rum3_2" name="rum3" value="2"><label for="rum3_2">2</label></div>
+          <div class="likert-option"><input type="radio" id="rum3_3" name="rum3" value="3"><label for="rum3_3">3</label></div>
+          <div class="likert-option"><input type="radio" id="rum3_4" name="rum3" value="4"><label for="rum3_4">4</label></div>
+          <div class="likert-option"><input type="radio" id="rum3_5" name="rum3" value="5"><label for="rum3_5">5</label></div>
+        </div>
+      </div>
+
+      <!-- Self-Focused Thinking Questions -->
+      <div class="question-group">
+        <div class="question-label">This technology makes me feel that it is important to me to understand what my feelings mean</div>
+        <div class="likert-scale">
+          <div class="likert-option"><input type="radio" id="thk1_1" name="thk1" value="1"><label for="thk1_1">1</label></div>
+          <div class="likert-option"><input type="radio" id="thk1_2" name="thk1" value="2"><label for="thk1_2">2</label></div>
+          <div class="likert-option"><input type="radio" id="thk1_3" name="thk1" value="3"><label for="thk1_3">3</label></div>
+          <div class="likert-option"><input type="radio" id="thk1_4" name="thk1" value="4"><label for="thk1_4">4</label></div>
+          <div class="likert-option"><input type="radio" id="thk1_5" name="thk1" value="5"><label for="thk1_5">5</label></div>
+        </div>
+      </div>
+
+      <div class="question-group">
+        <div class="question-label">This technology supports me in usually knowing why I feel the way I do</div>
+        <div class="likert-scale">
+          <div class="likert-option"><input type="radio" id="thk2_1" name="thk2" value="1"><label for="thk2_1">1</label></div>
+          <div class="likert-option"><input type="radio" id="thk2_2" name="thk2" value="2"><label for="thk2_2">2</label></div>
+          <div class="likert-option"><input type="radio" id="thk2_3" name="thk2" value="3"><label for="thk2_3">3</label></div>
+          <div class="likert-option"><input type="radio" id="thk2_4" name="thk2" value="4"><label for="thk2_4">4</label></div>
+          <div class="likert-option"><input type="radio" id="thk2_5" name="thk2" value="5"><label for="thk2_5">5</label></div>
+        </div>
+      </div>
+
+      <div class="question-group">
+        <div class="question-label">This technology makes me feel that it is important to me to be able to understand how my thoughts arise</div>
+        <div class="likert-scale">
+          <div class="likert-option"><input type="radio" id="thk3_1" name="thk3" value="1"><label for="thk3_1">1</label></div>
+          <div class="likert-option"><input type="radio" id="thk3_2" name="thk3" value="2"><label for="thk3_2">2</label></div>
+          <div class="likert-option"><input type="radio" id="thk3_3" name="thk3" value="3"><label for="thk3_3">3</label></div>
+          <div class="likert-option"><input type="radio" id="thk3_4" name="thk3" value="4"><label for="thk3_4">4</label></div>
+          <div class="likert-option"><input type="radio" id="thk3_5" name="thk3" value="5"><label for="thk3_5">5</label></div>
+        </div>
+      </div>
+
+      <!-- Game Experience Questions -->
+      <div class="question-group">
+        <div class="question-label">I felt focused on the game</div>
+        <div class="likert-scale">
+          <div class="likert-option"><input type="radio" id="gex1_1" name="gex1" value="1"><label for="gex1_1">1</label></div>
+          <div class="likert-option"><input type="radio" id="gex1_2" name="gex1" value="2"><label for="gex1_2">2</label></div>
+          <div class="likert-option"><input type="radio" id="gex1_3" name="gex1" value="3"><label for="gex1_3">3</label></div>
+          <div class="likert-option"><input type="radio" id="gex1_4" name="gex1" value="4"><label for="gex1_4">4</label></div>
+          <div class="likert-option"><input type="radio" id="gex1_5" name="gex1" value="5"><label for="gex1_5">5</label></div>
+        </div>
+      </div>
+
+      <div class="question-group">
+        <div class="question-label">The game was something that I was experiencing, rather than just doing</div>
+        <div class="likert-scale">
+          <div class="likert-option"><input type="radio" id="gex2_1" name="gex2" value="1"><label for="gex2_1">1</label></div>
+          <div class="likert-option"><input type="radio" id="gex2_2" name="gex2" value="2"><label for="gex2_2">2</label></div>
+          <div class="likert-option"><input type="radio" id="gex2_3" name="gex2" value="3"><label for="gex2_3">3</label></div>
+          <div class="likert-option"><input type="radio" id="gex2_4" name="gex2" value="4"><label for="gex2_4">4</label></div>
+          <div class="likert-option"><input type="radio" id="gex2_5" name="gex2" value="5"><label for="gex2_5">5</label></div>
+        </div>
+      </div>
+
+      <div class="question-group">
+        <div class="question-label">I felt motivated when playing the game</div>
+        <div class="likert-scale">
+          <div class="likert-option"><input type="radio" id="gex3_1" name="gex3" value="1"><label for="gex3_1">1</label></div>
+          <div class="likert-option"><input type="radio" id="gex3_2" name="gex3" value="2"><label for="gex3_2">2</label></div>
+          <div class="likert-option"><input type="radio" id="gex3_3" name="gex3" value="3"><label for="gex3_3">3</label></div>
+          <div class="likert-option"><input type="radio" id="gex3_4" name="gex3" value="4"><label for="gex3_4">4</label></div>
+          <div class="likert-option"><input type="radio" id="gex3_5" name="gex3" value="5"><label for="gex3_5">5</label></div>
+        </div>
+      </div>
+
+      <div class="question-group">
+        <div class="question-label">I enjoyed playing the game</div>
+        <div class="likert-scale">
+          <div class="likert-option"><input type="radio" id="gex4_1" name="gex4" value="1"><label for="gex4_1">1</label></div>
+          <div class="likert-option"><input type="radio" id="gex4_2" name="gex4" value="2"><label for="gex4_2">2</label></div>
+          <div class="likert-option"><input type="radio" id="gex4_3" name="gex4" value="3"><label for="gex4_3">3</label></div>
+          <div class="likert-option"><input type="radio" id="gex4_4" name="gex4" value="4"><label for="gex4_4">4</label></div>
+          <div class="likert-option"><input type="radio" id="gex4_5" name="gex4" value="5"><label for="gex4_5">5</label></div>
+        </div>
+      </div>
+
+      <div class="question-group">
+        <div class="question-label">I felt consciously aware of being in the real world whilst playing</div>
+        <div class="likert-scale">
+          <div class="likert-option"><input type="radio" id="gex5_1" name="gex5" value="1"><label for="gex5_1">1</label></div>
+          <div class="likert-option"><input type="radio" id="gex5_2" name="gex5" value="2"><label for="gex5_2">2</label></div>
+          <div class="likert-option"><input type="radio" id="gex5_3" name="gex5" value="3"><label for="gex5_3">3</label></div>
+          <div class="likert-option"><input type="radio" id="gex5_4" name="gex5" value="4"><label for="gex5_4">4</label></div>
+          <div class="likert-option"><input type="radio" id="gex5_5" name="gex5" value="5"><label for="gex5_5">5</label></div>
+        </div>
+      </div>
+
+      <div class="question-group">
+        <div class="question-label">I forgot about my everyday concerns</div>
+        <div class="likert-scale">
+          <div class="likert-option"><input type="radio" id="gex6_1" name="gex6" value="1"><label for="gex6_1">1</label></div>
+          <div class="likert-option"><input type="radio" id="gex6_2" name="gex6" value="2"><label for="gex6_2">2</label></div>
+          <div class="likert-option"><input type="radio" id="gex6_3" name="gex6" value="3"><label for="gex6_3">3</label></div>
+          <div class="likert-option"><input type="radio" id="gex6_4" name="gex6" value="4"><label for="gex6_4">4</label></div>
+          <div class="likert-option"><input type="radio" id="gex6_5" name="gex6" value="5"><label for="gex6_5">5</label></div>
+        </div>
+      </div>
+
+      <div class="question-group">
+        <div class="question-label">I felt that I was separated from the real-world environment</div>
+        <div class="likert-scale">
+          <div class="likert-option"><input type="radio" id="gex7_1" name="gex7" value="1"><label for="gex7_1">1</label></div>
+          <div class="likert-option"><input type="radio" id="gex7_2" name="gex7" value="2"><label for="gex7_2">2</label></div>
+          <div class="likert-option"><input type="radio" id="gex7_3" name="gex7" value="3"><label for="gex7_3">3</label></div>
+          <div class="likert-option"><input type="radio" id="gex7_4" name="gex7" value="4"><label for="gex7_4">4</label></div>
+          <div class="likert-option"><input type="radio" id="gex7_5" name="gex7" value="5"><label for="gex7_5">5</label></div>
+        </div>
+      </div>
+
+      <div class="question-group">
+        <div class="question-label">I found myself so involved that I was unaware I was using controls</div>
+        <div class="likert-scale">
+          <div class="likert-option"><input type="radio" id="gex8_1" name="gex8" value="1"><label for="gex8_1">1</label></div>
+          <div class="likert-option"><input type="radio" id="gex8_2" name="gex8" value="2"><label for="gex8_2">2</label></div>
+          <div class="likert-option"><input type="radio" id="gex8_3" name="gex8" value="3"><label for="gex8_3">3</label></div>
+          <div class="likert-option"><input type="radio" id="gex8_4" name="gex8" value="4"><label for="gex8_4">4</label></div>
+          <div class="likert-option"><input type="radio" id="gex8_5" name="gex8" value="5"><label for="gex8_5">5</label></div>
+        </div>
+      </div>
+
+      <div class="question-group">
+        <div class="question-label">I found the game challenging</div>
+        <div class="likert-scale">
+          <div class="likert-option"><input type="radio" id="gex9_1" name="gex9" value="1"><label for="gex9_1">1</label></div>
+          <div class="likert-option"><input type="radio" id="gex9_2" name="gex9" value="2"><label for="gex9_2">2</label></div>
+          <div class="likert-option"><input type="radio" id="gex9_3" name="gex9" value="3"><label for="gex9_3">3</label></div>
+          <div class="likert-option"><input type="radio" id="gex9_4" name="gex9" value="4"><label for="gex9_4">4</label></div>
+          <div class="likert-option"><input type="radio" id="gex9_5" name="gex9" value="5"><label for="gex9_5">5</label></div>
+        </div>
+      </div>
+
+      <div class="question-group">
+        <div class="question-label">I found the game easy</div>
+        <div class="likert-scale">
+          <div class="likert-option"><input type="radio" id="gex10_1" name="gex10" value="1"><label for="gex10_1">1</label></div>
+          <div class="likert-option"><input type="radio" id="gex10_2" name="gex10" value="2"><label for="gex10_2">2</label></div>
+          <div class="likert-option"><input type="radio" id="gex10_3" name="gex10" value="3"><label for="gex10_3">3</label></div>
+          <div class="likert-option"><input type="radio" id="gex10_4" name="gex10" value="4"><label for="gex10_4">4</label></div>
+          <div class="likert-option"><input type="radio" id="gex10_5" name="gex10" value="5"><label for="gex10_5">5</label></div>
+        </div>
+      </div>
+
+      <div class="question-group">
+        <div class="question-label">I felt in suspense about whether or not I would do well in the game</div>
+        <div class="likert-scale">
+          <div class="likert-option"><input type="radio" id="gex11_1" name="gex11" value="1"><label for="gex11_1">1</label></div>
+          <div class="likert-option"><input type="radio" id="gex11_2" name="gex11" value="2"><label for="gex11_2">2</label></div>
+          <div class="likert-option"><input type="radio" id="gex11_3" name="gex11" value="3"><label for="gex11_3">3</label></div>
+          <div class="likert-option"><input type="radio" id="gex11_4" name="gex11" value="4"><label for="gex11_4">4</label></div>
+          <div class="likert-option"><input type="radio" id="gex11_5" name="gex11" value="5"><label for="gex11_5">5</label></div>
+        </div>
+      </div>
+
+      <div class="button-group">
+        <button type="submit">Submit</button>
+      </div>
+    </form>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    function handleSubmit(event) {
+      event.preventDefault();
+      
+      // Validate that all questions have been answered
+      const allQuestions = ['ref1', 'ref2', 'ref3', 'rum1', 'rum2', 'rum3', 'thk1', 'thk2', 'thk3', 'gex1', 'gex2', 'gex3', 'gex4', 'gex5', 'gex6', 'gex7', 'gex8', 'gex9', 'gex10', 'gex11'];
+      const unanswered = [];
+      
+      for (const question of allQuestions) {
+        if (!document.querySelector(`input[name="${question}"]:checked`)) {
+          unanswered.push(question);
+        }
+      }
+      
+      // Show error if any questions are unanswered
+      if (unanswered.length > 0) {
+        const errorElement = document.getElementById('errorMessage');
+        errorElement.textContent = `Please answer all questions before submitting. (${20 - unanswered.length} of 20 answered)`;
+        return;
+      }
+      
+      // Clear any previous error messages
+      document.getElementById('errorMessage').textContent = '';
+      
+      // Collect all responses
+      const responses = {
+        reflection: {
+          ref1: document.querySelector('input[name="ref1"]:checked')?.value,
+          ref2: document.querySelector('input[name="ref2"]:checked')?.value,
+          ref3: document.querySelector('input[name="ref3"]:checked')?.value,
+        },
+        rumination: {
+          rum1: document.querySelector('input[name="rum1"]:checked')?.value,
+          rum2: document.querySelector('input[name="rum2"]:checked')?.value,
+          rum3: document.querySelector('input[name="rum3"]:checked')?.value,
+        },
+        selfFocusedThinking: {
+          thk1: document.querySelector('input[name="thk1"]:checked')?.value,
+          thk2: document.querySelector('input[name="thk2"]:checked')?.value,
+          thk3: document.querySelector('input[name="thk3"]:checked')?.value,
+        },
+        gameExperience: {
+          gex1: document.querySelector('input[name="gex1"]:checked')?.value,
+          gex2: document.querySelector('input[name="gex2"]:checked')?.value,
+          gex3: document.querySelector('input[name="gex3"]:checked')?.value,
+          gex4: document.querySelector('input[name="gex4"]:checked')?.value,
+          gex5: document.querySelector('input[name="gex5"]:checked')?.value,
+          gex6: document.querySelector('input[name="gex6"]:checked')?.value,
+          gex7: document.querySelector('input[name="gex7"]:checked')?.value,
+          gex8: document.querySelector('input[name="gex8"]:checked')?.value,
+          gex9: document.querySelector('input[name="gex9"]:checked')?.value,
+          gex10: document.querySelector('input[name="gex10"]:checked')?.value,
+          gex11: document.querySelector('input[name="gex11"]:checked')?.value,
+        },
+      };
+
+      console.log('📝 End-of-session questionnaire responses:', responses);
+      
+      // Send responses to main process - this will trigger app quit
+      ipcRenderer.send('questionnaire-responses-submitted-final', responses);
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      console.log('📋 End-of-session questionnaire loaded');
+      updateProgressInfo();
+    });
+
+    function updateProgressInfo() {
+      const totalQuestions = 20;
+      const answeredQuestions = document.querySelectorAll('input[type="radio"]:checked').length;
+      const progressElement = document.getElementById('progressInfo');
+      progressElement.textContent = `Questions answered: ${answeredQuestions} / 20`;
+    }
+
+    // Update progress as user answers
+    document.querySelectorAll('input[type="radio"]').forEach(radio => {
+      radio.addEventListener('change', updateProgressInfo);
+    });
+
+    // Handle close attempt from main process
+    ipcRenderer.on('show-close-error', () => {
+      const errorElement = document.getElementById('errorMessage');
+      const answeredQuestions = document.querySelectorAll('input[type="radio"]:checked').length;
+      errorElement.textContent = `⚠️ Please finish answering all the questions before closing. (${answeredQuestions} of 20 answered)`;
+      errorElement.style.color = '#ff6666';
+    });
+  </script>
+</body>
+</html>

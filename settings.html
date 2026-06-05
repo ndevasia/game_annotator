@@ -103,12 +103,32 @@
         <small>When enabled, displays the most recent annotations in a transparent overlay during recording.</small>
       </label>
     </div>
-    <div class="settings-row">
-      <input id="enable-post-game-review" type="checkbox">
-      <label for="enable-post-game-review" class="settings-copy">
-        <strong>Enable post-game review prompt</strong>
-        <small>When enabled, ending a recording opens a review text window instead of the loading spinner so you can add a summary paragraph.</small>
-      </label>
+    <div id="review-section" class="settings-field" style="margin-top: 18px; border-top: 1px solid rgba(0, 255, 255, 0.3); padding-top: 18px;">
+      <strong style="color: #00ffff; display: block; margin-bottom: 12px;">Post-Game Review</strong>
+      <div id="study-mode-notice" style="display: none; background: rgba(255, 200, 0, 0.1); border: 1px solid rgba(255, 200, 0, 0.5); border-radius: 6px; padding: 10px; margin-bottom: 12px; color: #ffc800; font-size: 0.9em;">
+        <strong>Study Mode:</strong> <span id="study-mode-message"></span>
+      </div>
+      <div class="settings-row" style="margin: 12px 0; gap: 8px;">
+        <input id="review-mode-none" type="radio" name="review-mode" value="none" style="margin-top: 2px;">
+        <label for="review-mode-none" class="settings-copy" style="gap: 0;">
+          <strong>Disabled</strong>
+          <small>Skip review and proceed straight to home after recording ends.</small>
+        </label>
+      </div>
+      <div class="settings-row" style="margin: 12px 0; gap: 8px;">
+        <input id="review-mode-ai" type="radio" name="review-mode" value="ai" style="margin-top: 2px;">
+        <label for="review-mode-ai" class="settings-copy" style="gap: 0;">
+          <strong>AI Review (Gemini)</strong>
+          <small>Chat-based feedback using AI. Requires GEMINI_API_KEY in .env</small>
+        </label>
+      </div>
+      <div class="settings-row" style="margin: 12px 0; gap: 8px;">
+        <input id="review-mode-text" type="radio" name="review-mode" value="text" style="margin-top: 2px;">
+        <label for="review-mode-text" class="settings-copy" style="gap: 0;">
+          <strong>Regular Review</strong>
+          <small>Open a text box to manually write a summary of the session.</small>
+        </label>
+      </div>
     </div>
     <div class="settings-field" style="margin-left: 32px; margin-top: 12px;">
       <label for="recent-notes-count" style="color: #ffffff;"><strong>Number of notes to display:</strong></label>
@@ -181,10 +201,19 @@
     const recordAllDisplaysCheckbox = document.getElementById('record-all-displays');
     const localOnlyStorageCheckbox = document.getElementById('local-only-storage');
     const showRecentNotesOverlayCheckbox = document.getElementById('show-recent-notes-overlay');
-    const enablePostGameReviewCheckbox = document.getElementById('enable-post-game-review');
     const recentNotesCountInput = document.getElementById('recent-notes-count');
     const displaySelect = document.getElementById('display-select');
     const displayHelp = document.getElementById('display-help');
+    
+    // Track study mode status
+    let isInStudyMode = false;
+
+    // Review mode radio buttons
+    const reviewModeRadios = {
+      none: document.getElementById('review-mode-none'),
+      ai: document.getElementById('review-mode-ai'),
+      text: document.getElementById('review-mode-text'),
+    };
 
     // Hotkey input elements
     const hotkeyInputs = {
@@ -242,16 +271,58 @@
 
     async function loadSettings() {
       try {
-        const [settings, displays] = await Promise.all([
+        const [settings, displays, studyInfo] = await Promise.all([
           ipcRenderer.invoke('get-settings'),
           ipcRenderer.invoke('get-available-displays'),
+          ipcRenderer.invoke('get-study-info'),
         ]);
 
         recordAllDisplaysCheckbox.checked = settings.recordAllDisplays !== false;
         localOnlyStorageCheckbox.checked = settings.localOnlyStorage === true;
         showRecentNotesOverlayCheckbox.checked = settings.showRecentNotesOverlay !== false;
-        enablePostGameReviewCheckbox.checked = settings.enablePostGameReview === true;
         recentNotesCountInput.value = settings.recentNotesCount || 3;
+        
+        // Handle review mode based on study condition
+        let reviewMode = settings.reviewMode || 'none';
+        const studyModeNotice = document.getElementById('study-mode-notice');
+        const studyModeMessage = document.getElementById('study-mode-message');
+        const reviewModeInputs = document.querySelectorAll('input[name="review-mode"]');
+        
+        if (studyInfo && studyInfo.isEnabled) {
+          // In study mode - set review mode based on condition
+          isInStudyMode = true;
+          studyModeNotice.style.display = 'block';
+          
+          const conditionMap = {
+            'control': 'none',
+            'prompt-light': 'text',
+            'prompt-ai': 'ai'
+          };
+          
+          reviewMode = conditionMap[studyInfo.condition] || 'none';
+          const conditionLabels = {
+            'control': 'Control group - Reviews disabled',
+            'prompt-light': 'Light prompt group - Regular review enabled',
+            'prompt-ai': 'AI prompt group - AI review enabled'
+          };
+          
+          studyModeMessage.textContent = conditionLabels[studyInfo.condition] || 'Unknown condition';
+          
+          // Disable all review mode inputs
+          reviewModeInputs.forEach(input => {
+            input.disabled = true;
+          });
+        } else {
+          // Not in study mode - allow manual selection
+          isInStudyMode = false;
+          studyModeNotice.style.display = 'none';
+          reviewModeInputs.forEach(input => {
+            input.disabled = false;
+          });
+        }
+        
+        reviewModeRadios[reviewMode].checked = true;
+        
         renderDisplayOptions(displays, settings.selectedDisplayId);
         updateDisplayFieldState();
 
@@ -277,12 +348,13 @@
 
     async function saveSettings() {
       const count = Math.max(1, Math.min(10, parseInt(recentNotesCountInput.value) || 3));
-      await ipcRenderer.invoke('save-settings', {
+      const reviewMode = Array.from(document.querySelectorAll('input[name="review-mode"]')).find(r => r.checked)?.value || 'none';
+      
+      const settingsData = {
         recordAllDisplays: recordAllDisplaysCheckbox.checked,
         selectedDisplayId: displaySelect.value || null,
         localOnlyStorage: localOnlyStorageCheckbox.checked,
         showRecentNotesOverlay: showRecentNotesOverlayCheckbox.checked,
-        enablePostGameReview: enablePostGameReviewCheckbox.checked,
         recentNotesCount: count,
         hotkeys: {
           annotationWindow: hotkeyInputs.annotationWindow.value,
@@ -296,7 +368,14 @@
           emoji5: hotkeyInputs.emoji5.value,
           emoji6: hotkeyInputs.emoji6.value,
         },
-      });
+      };
+      
+      // Only save reviewMode if not in study mode (study mode review settings are controlled by study conditions)
+      if (!isInStudyMode) {
+        settingsData.reviewMode = reviewMode;
+      }
+      
+      await ipcRenderer.invoke('save-settings', settingsData);
       ipcRenderer.send('close-settings');
     }
 

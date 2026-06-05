@@ -1,4 +1,6 @@
 const AWS = require('aws-sdk');
+const fs = require('fs');
+const path = require('path');
 require('dotenv').config({ path: __dirname + '/.env' }); // __dirname resolves to backend/
 const SessionMetadata = require('./metadata.js')
 
@@ -60,6 +62,12 @@ class AWSManager {
 
 
     async listFilesFromS3(prefix, extensionFilter = '') {
+  // If S3 client is not available, return empty list
+  if (!this.s3) {
+    console.warn(`⚠️ S3 client not available - cannot list files at ${prefix}`);
+    return [];
+  }
+
   try {
     const listedObjects = await this.s3.listObjectsV2({
       Bucket: this.bucket,
@@ -93,6 +101,12 @@ class AWSManager {
   }
 
     async loadJSON(username, fileTimestamp, folderName) {
+        // If S3 client is not available, return null
+        if (!this.s3) {
+          console.warn(`⚠️ S3 client not available - cannot load JSON: ${folderName}/${fileTimestamp}.json`);
+          return null;
+        }
+
         const key = `${username}/${folderName}/${fileTimestamp}.json`;
         const params = {
             Bucket: this.bucket,
@@ -108,7 +122,7 @@ class AWSManager {
         }
     }
 
-    async uploadFile(buffer, username, fileTimestamp, folderName) {
+    async uploadFile(filePathOrBuffer, username, fileTimestamp, folderName) {
         let key = '';
         if (folderName == 'videos') {
           key = `${username}/${folderName}/${fileTimestamp}.mkv`;
@@ -116,10 +130,21 @@ class AWSManager {
           key = `${username}/${folderName}/${fileTimestamp}.json`;
         }
         console.log(`Attempting to upload to s3://${this.bucket}/${key}`);
+        
+        // Determine if input is a file path (string) or buffer
+        let body;
+        if (typeof filePathOrBuffer === 'string') {
+          // File path: create a read stream for large files
+          body = fs.createReadStream(filePathOrBuffer);
+        } else {
+          // Buffer: use directly (for small JSON files)
+          body = filePathOrBuffer;
+        }
+        
         const params = {
             Bucket: this.bucket,
             Key: key,
-            Body: buffer,
+            Body: body,
         };
 
         await this.s3.upload(params).promise();
@@ -127,6 +152,12 @@ class AWSManager {
     }
 
   async loadSessionsFromS3(username) {
+    // If S3 client is not available, return empty list
+    if (!this.s3) {
+      console.warn('⚠️ S3 client not available - cannot load sessions from S3');
+      return [];
+    }
+
     const sessions = [];
 
     try {
@@ -191,6 +222,7 @@ class AWSManager {
             postGameReview: metadataObj.postGameReview || '',
             postGameReviewSavedAt: metadataObj.postGameReviewSavedAt || null,
             postGameReviewLastEditedAt: metadataObj.postGameReviewLastEditedAt || null,
+            postGameReviewCondition: metadataObj.postGameReviewCondition || null,
             videoUrl,
             annotationUrl, // null if no annotation
             metadataUrl,
@@ -247,6 +279,12 @@ async _safeGetSignedUrl(key) {
 
 
   async saveMetadata(sessionMetadata) {
+    // If S3 client is not available, skip S3 save
+    if (!this.s3) {
+      console.warn('⚠️ S3 client not available - skipping metadata save to S3');
+      return;
+    }
+
     const username = sessionMetadata.getUsername();
     const fileTimestamp = sessionMetadata.getFileTimestamp();
     const key = `${username}/metadata/${fileTimestamp}.json`;
@@ -382,6 +420,12 @@ async _safeGetSignedUrl(key) {
   }
 
   async saveAnnotationToS3(sessionMetadata, annotation) {
+    // If S3 client is not available, skip S3 save
+    if (!this.s3) {
+      console.warn('⚠️ S3 client not available - skipping annotation save to S3');
+      return;
+    }
+
     try {
         // Step 1: Try to fetch existing file from S3
         let annotations = [];
@@ -420,6 +464,12 @@ async _safeGetSignedUrl(key) {
     }
 
   async updateSessionReview(username, fileTimestamp, review) {
+    // If S3 client is not available, skip S3 update
+    if (!this.s3) {
+      console.warn('⚠️ S3 client not available - skipping S3 review update');
+      return;
+    }
+
     const key = `${username}/metadata/${fileTimestamp}.json`;
     let metadataObj = {
       username,
@@ -461,6 +511,78 @@ async _safeGetSignedUrl(key) {
       Body: JSON.stringify(metadataObj, null, 2),
       ContentType: 'application/json',
     }).promise();
+  }
+
+  /**
+   * Generic method to save JSON data to S3
+   * @param {string} username - Username
+   * @param {string} filename - Filename without extension (e.g., 'condition-order')
+   * @param {string} folderName - Folder name (e.g., 'participant')
+   * @param {object} data - JSON data to save
+   */
+  async saveJSON(username, filename, folderName, data) {
+    // If S3 client is not available, just warn and return
+    if (!this.s3) {
+      console.warn(`⚠️ S3 client not available - skipping JSON save: ${folderName}/${filename}.json`);
+      return false;
+    }
+
+    const key = `${username}/${folderName}/${filename}.json`;
+    try {
+      await this.s3.putObject({
+        Bucket: this.bucket,
+        Key: key,
+        Body: JSON.stringify(data, null, 2),
+        ContentType: 'application/json',
+      }).promise();
+      console.log(`✅ Saved JSON to s3://${this.bucket}/${key}`);
+      return true;
+    } catch (err) {
+      console.error(`❌ Failed to save JSON to ${key}:`, err);
+      throw err;
+    }
+  }
+
+  async readStudyPasswordsFile() {
+    // If S3 client is not available, throw error
+    if (!this.s3) {
+      throw new Error('S3 client not available - cannot read study passwords');
+    }
+
+    const key = 'combined_passwords.json';
+    try {
+      const data = await this.s3.getObject({
+        Bucket: this.bucket,
+        Key: key,
+      }).promise();
+      const passwordData = JSON.parse(data.Body.toString('utf-8'));
+      console.log(`✅ Loaded study passwords from s3://${this.bucket}/${key}`);
+      return passwordData;
+    } catch (err) {
+      console.error(`❌ Failed to load study passwords from ${key}:`, err);
+      throw err;
+    }
+  }
+
+  async readConditionsFile() {
+    // If S3 client is not available, throw error
+    if (!this.s3) {
+      throw new Error('S3 client not available - cannot read conditions');
+    }
+
+    const key = 'conditions.json';
+    try {
+      const data = await this.s3.getObject({
+        Bucket: this.bucket,
+        Key: key,
+      }).promise();
+      const conditionsData = JSON.parse(data.Body.toString('utf-8'));
+      console.log(`✅ Loaded conditions from s3://${this.bucket}/${key}`);
+      return conditionsData;
+    } catch (err) {
+      console.error(`❌ Failed to load conditions from ${key}:`, err);
+      throw err;
+    }
   }
 }
 

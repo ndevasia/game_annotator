@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Study Login</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+      background: linear-gradient(180deg, #0d0221, #1a1a40, #2e0249);
+      font-family: Arial, sans-serif;
+    }
+
+    .login-container {
+      background: rgba(20, 20, 40, 0.95);
+      border: 2px solid #00ffff;
+      border-radius: 12px;
+      padding: 40px;
+      max-width: 500px;
+      width: 100%;
+      box-shadow: 0 0 30px rgba(0, 255, 255, 0.3);
+    }
+
+    h1 {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 1.8em;
+      color: #00ffff;
+      text-shadow: 0 0 10px #00ffff;
+      margin-bottom: 10px;
+      text-align: center;
+    }
+
+    .subtitle {
+      color: #aaa;
+      text-align: center;
+      margin-bottom: 30px;
+      font-size: 0.95em;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    label {
+      color: #00ffff;
+      font-weight: bold;
+      font-size: 0.95em;
+    }
+
+    input {
+      padding: 12px;
+      border: 1px solid #00ffff;
+      border-radius: 4px;
+      background: rgba(0, 50, 80, 0.3);
+      color: #00ffff;
+      font-size: 1em;
+      font-family: Arial, sans-serif;
+    }
+
+    input::placeholder {
+      color: rgba(0, 255, 255, 0.5);
+    }
+
+    input:focus {
+      outline: none;
+      border-color: #ff00ff;
+      box-shadow: 0 0 10px rgba(255, 0, 255, 0.5);
+      background: rgba(100, 0, 100, 0.2);
+    }
+
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 30px;
+    }
+
+    button {
+      flex: 1;
+      padding: 12px;
+      border: 1px solid #00ffff;
+      border-radius: 4px;
+      background: rgba(0, 100, 100, 0.2);
+      color: #00ffff;
+      font-size: 1em;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-family: 'Share Tech Mono', monospace;
+    }
+
+    button:hover {
+      background: rgba(0, 255, 255, 0.2);
+      box-shadow: 0 0 15px rgba(0, 255, 255, 0.5);
+    }
+
+    button.back-button {
+      border-color: #ff00ff;
+      color: #ff00ff;
+      background: rgba(100, 0, 100, 0.2);
+    }
+
+    button.back-button:hover {
+      background: rgba(255, 0, 255, 0.2);
+      box-shadow: 0 0 15px rgba(255, 0, 255, 0.5);
+    }
+
+    .error-message {
+      color: #ff4444;
+      text-align: center;
+      margin-bottom: 20px;
+      min-height: 20px;
+      font-size: 0.9em;
+    }
+
+    .success-message {
+      color: #44ff44;
+      text-align: center;
+      margin-bottom: 20px;
+      font-size: 0.9em;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-container">
+    <h1>Study Access</h1>
+    <p class="subtitle">Please log in to begin your study session</p>
+    
+    <div class="error-message" id="errorMessage"></div>
+    <div class="success-message" id="successMessage"></div>
+
+    <form onsubmit="handleLogin(event)">
+      <div class="form-group">
+        <label for="participantId">Participant ID *</label>
+        <input 
+          type="text" 
+          id="participantId" 
+          placeholder="e.g., participant_1" 
+          required
+          autocomplete="off"
+        >
+      </div>
+
+      <div class="form-group">
+        <label for="cohortId">Cohort ID *</label>
+        <input 
+          type="text" 
+          id="cohortId" 
+          placeholder="e.g., ch1 or ch2" 
+          required
+          autocomplete="off"
+        >
+      </div>
+
+      <div class="form-group">
+        <label for="weekNumber">Week Number *</label>
+        <input 
+          type="number" 
+          id="weekNumber" 
+          placeholder="e.g., 1, 2, 3..." 
+          min="1" 
+          required
+          autocomplete="off"
+        >
+      </div>
+
+      <div class="form-group">
+        <label for="password">Password *</label>
+        <input 
+          type="password" 
+          id="password" 
+          placeholder="Enter password" 
+          required
+          autocomplete="off"
+        >
+      </div>
+
+      <div class="button-group">
+        <button type="button" class="back-button" onclick="handleBack()">Back</button>
+        <button type="submit">Login</button>
+      </div>
+    </form>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    function handleLogin(event) {
+      event.preventDefault();
+      
+      const participantId = document.getElementById('participantId').value.trim();
+      const cohortId = document.getElementById('cohortId').value.trim();
+      const weekNumber = parseInt(document.getElementById('weekNumber').value);
+      const password = document.getElementById('password').value;
+
+      if (!participantId || !cohortId || !weekNumber || !password) {
+        showError('Please fill in all fields');
+        return;
+      }
+
+      if (isNaN(weekNumber) || weekNumber < 1) {
+        showError('Week number must be a positive number');
+        return;
+      }
+
+      // Send login attempt to main process
+      ipcRenderer.send('verify-study-credentials', {
+        participantId,
+        cohortId,
+        weekNumber,
+        password
+      });
+    }
+
+    function handleBack() {
+      ipcRenderer.send('study-login-back');
+    }
+
+    function showError(message) {
+      document.getElementById('errorMessage').textContent = message;
+      document.getElementById('successMessage').textContent = '';
+    }
+
+    function showSuccess(message) {
+      document.getElementById('successMessage').textContent = message;
+      document.getElementById('errorMessage').textContent = '';
+    }
+
+    // Listen for verification response
+    ipcRenderer.on('study-credentials-verified', (event, result) => {
+      if (result.success) {
+        showSuccess('Login successful! Proceeding...');
+        setTimeout(() => {
+          ipcRenderer.send('study-login-success', {
+            participantId: document.getElementById('participantId').value.trim(),
+            cohortId: document.getElementById('cohortId').value.trim(),
+            weekNumber: parseInt(document.getElementById('weekNumber').value),
+            condition: result.condition
+          });
+        }, 500);
+      } else {
+        showError(result.error || 'Login failed. Please try again.');
+      }
+    });
+
+    // Focus participant ID field on load
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('participantId').focus();
+    });
+  </script>
+</body>
+</html>

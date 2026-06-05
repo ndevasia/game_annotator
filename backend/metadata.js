@@ -10,6 +10,7 @@ class SessionMetadata {
     this.postGameReview = '';
     this.postGameReviewSavedAt = null;
     this.postGameReviewLastEditedAt = null;
+    this.postGameReviewCondition = null; // Track which condition generated this review
 
     // Try to load username from config.json if not provided
     if (this.username=='') {
@@ -61,6 +62,7 @@ class SessionMetadata {
     if (!this.postGameReview) {
       this.postGameReviewSavedAt = null;
       this.postGameReviewLastEditedAt = null;
+      this.postGameReviewCondition = null;
       return;
     }
 
@@ -69,6 +71,10 @@ class SessionMetadata {
       this.postGameReviewSavedAt = now;
     }
     this.postGameReviewLastEditedAt = now;
+  }
+
+  setPostGameReviewCondition(condition) {
+    this.postGameReviewCondition = condition;
   }
 
   // Getters
@@ -100,8 +106,12 @@ class SessionMetadata {
     return this.postGameReviewLastEditedAt;
   }
 
+  getPostGameReviewCondition() {
+    return this.postGameReviewCondition;
+  }
+
   toJSON() {
-    return {
+    const data = {
       username: this.username,
       title: this.title,
       fileTimestamp: this.fileTimestamp,
@@ -109,7 +119,15 @@ class SessionMetadata {
       postGameReview: this.postGameReview,
       postGameReviewSavedAt: this.postGameReviewSavedAt,
       postGameReviewLastEditedAt: this.postGameReviewLastEditedAt,
+      postGameReviewCondition: this.postGameReviewCondition,
     };
+    
+    // Include study metadata if present
+    if (this.studyMetadata) {
+      data.studyMetadata = this.studyMetadata;
+    }
+    
+    return data;
   }
 }
 
