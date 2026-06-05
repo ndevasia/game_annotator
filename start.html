@@ -75,14 +75,16 @@
   <script>
     const { ipcRenderer } = require('electron');
     let isStudyMode = false;
+    let studyCondition = null;
 
     // Listen for study condition info from main process
     ipcRenderer.on('session-data', (event, data) => {
       if (data && data.studyMode) {
         isStudyMode = true;
+        studyCondition = data.studyCondition || null;
         document.getElementById('study-fields').classList.add('show');
         document.getElementById('mood').focus();
-        console.log('📋 Study mode detected - showing additional fields');
+        console.log('📋 Study mode detected - showing additional fields', { studyCondition });
       }
     });
 
@@ -116,6 +118,7 @@
       if (isStudyMode) {
         data.mood = mood;
         data.mind = mind;
+        data.studyCondition = studyCondition;
       }
 
       ipcRenderer.send('save-start', data);

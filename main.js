@@ -446,7 +446,8 @@ function createPostGameReviewWindow() {
       }
     });
 
-    // Load the appropriate review file based on study condition or review mode
+    // Load the appropriate review file based on study condition
+    // AI review only appears in study mode with 'prompt-ai' condition
     let reviewFile = 'review-text.html'; // default
     if (studyConditions.isEnabled()) {
       if (studyConditions.shouldShowAIReview()) {
@@ -454,9 +455,8 @@ function createPostGameReviewWindow() {
       } else if (studyConditions.shouldShowTextReview()) {
         reviewFile = 'review-text.html';
       }
-    } else if (appConfig.reviewMode === 'ai') {
-      reviewFile = 'review-ai.html';
     }
+    // In normal mode, always use text review (never AI)
     reviewWindow.loadFile(reviewFile);
 
     reviewWindow.once('ready-to-show', () => {
@@ -2034,6 +2034,18 @@ async function startRecordingPhase() {
     createNoteWindow();        // open overlay window
     createEmojiWindow();
     
+    // Send study condition to overlay if available
+    const studyCondition = studyConditions.isEnabled() ? studyConditions.getCondition() : null;
+    console.log('📋 Study condition from studyConditions:', studyCondition);
+    if (noteWindow && !noteWindow.isDestroyed()) {
+      setTimeout(() => {
+        console.log('� Sending study condition to overlay:', studyCondition || 'none');
+        noteWindow.webContents.send('set-study-condition', studyCondition);
+      }, 500); // Increased delay to ensure overlay is fully ready
+    } else {
+      console.warn('⚠️ Note window not available to send study condition');
+    }
+    
     // Create and show recent notes overlay if enabled
     if (appConfig.showRecentNotesOverlay) {
       createRecentNotesWindow();
@@ -2301,6 +2313,29 @@ app.whenReady().then(async () => {
       startWindow.close();
       startWindow = null;
     }
+  });
+
+  ipcMain.on('show-idle-reminder-request', () => {
+    console.log('📬 Received idle reminder request from overlay');
+    // Show or create recent notes window if not visible
+    if (!recentNotesWindow || recentNotesWindow.isDestroyed()) {
+      console.log('📬 Recent notes window not found, creating...');
+      createRecentNotesWindow();
+    }
+    if (recentNotesWindow && !recentNotesWindow.isVisible()) {
+      console.log('📬 Showing recent notes window');
+      recentNotesWindow.show();
+    }
+    // Send reminder to recent notes window after a brief delay to ensure it's ready
+    setTimeout(() => {
+      if (recentNotesWindow && !recentNotesWindow.isDestroyed()) {
+        console.log('📬 Sending show-idle-reminder to recent-notes window');
+        recentNotesWindow.webContents.send('show-idle-reminder');
+        console.log('📬 Idle reminder sent successfully');
+      } else {
+        console.warn('⚠️ Recent notes window not available');
+      }
+    }, 100);
   });
 
   ipcMain.on('request-study-info', (event) => {

@@ -561,6 +561,16 @@
     });
 
     backBtn.addEventListener('click', () => {
+      // In study mode, check if most recent session has been uploaded
+      if (studyMode && allSessions && allSessions.length > 0) {
+        const mostRecentSession = allSessions[0];
+        if (mostRecentSession.source === 'local') {
+          const confirmed = confirm('Your most recent session has not been uploaded yet. Are you sure you want to leave?');
+          if (!confirmed) {
+            return; // Don't navigate if user cancels
+          }
+        }
+      }
       ipcRenderer.send('open-home');
     });
 
@@ -1032,7 +1042,7 @@
               username: session.username || activeUsername,
               fileTimestamp: session.fileTimestamp,
             });
-            sessionDiv.remove();
+            location.reload();
           } catch (err) {
             console.error('Failed to upload local session:', err);
             alert('Error uploading local session to S3.');

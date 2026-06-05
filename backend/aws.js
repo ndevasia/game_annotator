@@ -1,4 +1,6 @@
 const AWS = require('aws-sdk');
+const fs = require('fs');
+const path = require('path');
 require('dotenv').config({ path: __dirname + '/.env' }); // __dirname resolves to backend/
 const SessionMetadata = require('./metadata.js')
 
@@ -120,7 +122,7 @@ class AWSManager {
         }
     }
 
-    async uploadFile(buffer, username, fileTimestamp, folderName) {
+    async uploadFile(filePathOrBuffer, username, fileTimestamp, folderName) {
         let key = '';
         if (folderName == 'videos') {
           key = `${username}/${folderName}/${fileTimestamp}.mkv`;
@@ -128,10 +130,21 @@ class AWSManager {
           key = `${username}/${folderName}/${fileTimestamp}.json`;
         }
         console.log(`Attempting to upload to s3://${this.bucket}/${key}`);
+        
+        // Determine if input is a file path (string) or buffer
+        let body;
+        if (typeof filePathOrBuffer === 'string') {
+          // File path: create a read stream for large files
+          body = fs.createReadStream(filePathOrBuffer);
+        } else {
+          // Buffer: use directly (for small JSON files)
+          body = filePathOrBuffer;
+        }
+        
         const params = {
             Bucket: this.bucket,
             Key: key,
-            Body: buffer,
+            Body: body,
         };
 
         await this.s3.upload(params).promise();
