@@ -2686,6 +2686,12 @@ console.log('✅ open-session-chat listener registration complete');
   ipcMain.handle('get-available-displays', () => {
     return getAvailableDisplays();
   });
+  ipcMain.handle('get-study-info', () => {
+    return {
+      isEnabled: studyConditions.isEnabled(),
+      condition: studyConditions.isEnabled() ? studyConditions.getCondition() : null
+    };
+  });
   ipcMain.handle('save-settings', async (event, settings) => {
     await saveSettings(settings);
     return appConfig;
