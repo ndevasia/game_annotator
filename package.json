@@ -29,6 +29,9 @@
       "!s3_data/**",
       "!**/s3_data/**"
     ],
+    "extraResources": [
+      "bin/**/*"
+    ],
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
@@ -39,7 +42,8 @@
     },
     "win": {
       "target": "nsis",
-      "icon": "icons/icon.ico"
+      "icon": "icons/icon.ico",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     }
   }
 }
