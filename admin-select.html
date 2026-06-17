@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 20px;
+      }
+
+      .container {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        width: 100%;
+        max-width: 500px;
+        padding: 40px;
+      }
+
+      h1 {
+        font-size: 28px;
+        margin-bottom: 10px;
+        color: #333;
+        text-align: center;
+      }
+
+      .subtitle {
+        text-align: center;
+        color: #999;
+        margin-bottom: 30px;
+        font-size: 14px;
+      }
+
+      .button-group {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 30px;
+      }
+
+      button {
+        flex: 1;
+        padding: 12px 20px;
+        font-size: 16px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: all 0.2s;
+      }
+
+      .btn-normal {
+        background: #f0f0f0;
+        color: #333;
+        border: 2px solid #ddd;
+      }
+
+      .btn-normal:hover {
+        background: #e8e8e8;
+        border-color: #bbb;
+      }
+
+      .btn-normal.active {
+        background: #667eea;
+        color: white;
+        border-color: #667eea;
+      }
+
+      .btn-admin {
+        background: #f0f0f0;
+        color: #333;
+        border: 2px solid #ddd;
+      }
+
+      .btn-admin:hover {
+        background: #e8e8e8;
+        border-color: #bbb;
+      }
+
+      .btn-admin.active {
+        background: #f97316;
+        color: white;
+        border-color: #f97316;
+      }
+
+      .participant-list {
+        display: none;
+        margin-top: 20px;
+      }
+
+      .participant-list.show {
+        display: block;
+      }
+
+      .search-box {
+        margin-bottom: 15px;
+      }
+
+      .search-box input {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        font-size: 14px;
+      }
+
+      .participant-options {
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        max-height: 300px;
+        overflow-y: auto;
+      }
+
+      .participant-item {
+        padding: 12px;
+        border-bottom: 1px solid #eee;
+        cursor: pointer;
+        transition: background 0.2s;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .participant-item:last-child {
+        border-bottom: none;
+      }
+
+      .participant-item:hover {
+        background: #f5f5f5;
+      }
+
+      .participant-item input[type="radio"] {
+        cursor: pointer;
+      }
+
+      .participant-label {
+        flex: 1;
+        cursor: pointer;
+        font-size: 14px;
+      }
+
+      .loading {
+        text-align: center;
+        padding: 20px;
+        color: #999;
+      }
+
+      .error {
+        background: #fee;
+        border: 1px solid #fcc;
+        color: #c00;
+        padding: 12px;
+        border-radius: 6px;
+        font-size: 14px;
+        margin-top: 15px;
+      }
+
+      .action-buttons {
+        display: flex;
+        gap: 12px;
+        margin-top: 20px;
+      }
+
+      .btn-submit {
+        flex: 1;
+        padding: 12px 20px;
+        background: #667eea;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 16px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 0.2s;
+        display: none;
+      }
+
+      .btn-submit.show {
+        display: block;
+      }
+
+      .btn-submit:hover {
+        background: #5568d3;
+      }
+
+      .btn-submit:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+      }
+
+      .btn-back {
+        flex: 1;
+        padding: 12px 20px;
+        background: #f0f0f0;
+        color: #333;
+        border: none;
+        border-radius: 6px;
+        font-size: 16px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 0.2s;
+        display: none;
+      }
+
+      .btn-back.show {
+        display: block;
+      }
+
+      .btn-back:hover {
+        background: #e8e8e8;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>App Mode</h1>
+      <p class="subtitle">Select how you want to use the app</p>
+
+      <div class="button-group">
+        <button class="btn-normal active" id="normalBtn">Normal Mode</button>
+        <button class="btn-admin" id="adminBtn">Admin Mode</button>
+      </div>
+
+      <div class="participant-list" id="participantList">
+        <div class="search-box">
+          <input type="text" id="searchInput" placeholder="Search participants...">
+        </div>
+        <div class="loading" id="loadingIndicator">Loading participants...</div>
+        <div class="participant-options" id="participantOptions" style="display: none;"></div>
+        <div class="error" id="errorMessage"></div>
+      </div>
+
+      <div class="action-buttons">
+        <button class="btn-submit show" id="submitBtn">Continue as Normal User</button>
+        <button class="btn-submit" id="submitAdminBtn" disabled>Login as Selected Participant</button>
+        <button class="btn-back show" id="backBtn">Back</button>
+      </div>
+    </div>
+
+    <script>
+      const { ipcRenderer } = require('electron');
+
+      let mode = 'normal';
+      let selectedParticipant = null;
+      let participants = [];
+
+      const normalBtn = document.getElementById('normalBtn');
+      const adminBtn = document.getElementById('adminBtn');
+      const participantList = document.getElementById('participantList');
+      const submitBtn = document.getElementById('submitBtn');
+      const submitAdminBtn = document.getElementById('submitAdminBtn');
+      const backBtn = document.getElementById('backBtn');
+      const loadingIndicator = document.getElementById('loadingIndicator');
+      const participantOptions = document.getElementById('participantOptions');
+      const errorMessage = document.getElementById('errorMessage');
+      const searchInput = document.getElementById('searchInput');
+
+      normalBtn.addEventListener('click', () => {
+        mode = 'normal';
+        normalBtn.classList.add('active');
+        adminBtn.classList.remove('active');
+        participantList.classList.remove('show');
+        submitBtn.classList.add('show');
+        submitAdminBtn.classList.remove('show');
+        backBtn.classList.remove('show');
+        submitBtn.textContent = 'Continue as Normal User';
+      });
+
+      adminBtn.addEventListener('click', async () => {
+        mode = 'admin';
+        adminBtn.classList.add('active');
+        normalBtn.classList.remove('active');
+        participantList.classList.add('show');
+        submitBtn.classList.remove('show');
+        submitAdminBtn.classList.add('show');
+        backBtn.classList.add('show');
+        
+        if (participants.length === 0) {
+          await loadParticipants();
+        }
+      });
+
+      backBtn.addEventListener('click', () => {
+        normalBtn.click();
+      });
+
+      async function loadParticipants() {
+        try {
+          loadingIndicator.style.display = 'block';
+          participantOptions.style.display = 'none';
+          errorMessage.textContent = '';
+
+          participants = await ipcRenderer.invoke('get-admin-participants');
+          
+          if (participants.length === 0) {
+            errorMessage.textContent = 'No participants found in s3_data folder.';
+            loadingIndicator.style.display = 'none';
+            return;
+          }
+
+          renderParticipants(participants);
+          loadingIndicator.style.display = 'none';
+          participantOptions.style.display = 'block';
+        } catch (err) {
+          errorMessage.textContent = `Error loading participants: ${err.message}`;
+          loadingIndicator.style.display = 'none';
+        }
+      }
+
+      function renderParticipants(list) {
+        participantOptions.innerHTML = list.map(p => `
+          <label class="participant-item">
+            <input type="radio" name="participant" value="${p}" ${selectedParticipant === p ? 'checked' : ''}>
+            <span class="participant-label">${p}</span>
+          </label>
+        `).join('');
+
+        document.querySelectorAll('input[name="participant"]').forEach(radio => {
+          radio.addEventListener('change', (e) => {
+            selectedParticipant = e.target.value;
+            submitAdminBtn.disabled = !selectedParticipant;
+          });
+        });
+      }
+
+      searchInput.addEventListener('input', (e) => {
+        const query = e.target.value.toLowerCase();
+        const filtered = participants.filter(p => p.toLowerCase().includes(query));
+        renderParticipants(filtered);
+      });
+
+      submitBtn.addEventListener('click', () => {
+        ipcRenderer.send('admin-mode-selected', { mode: 'normal', participant: null });
+      });
+
+      submitAdminBtn.addEventListener('click', () => {
+        if (selectedParticipant) {
+          ipcRenderer.send('admin-mode-selected', { mode: 'admin', participant: selectedParticipant });
+        }
+      });
+    </script>
+  </body>
+</html>

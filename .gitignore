@@ -14,3 +14,5 @@ ndevasia/
 backend/script.py
 backend/s3_data/
 s3_data/*
+bin/
+backend/bin/
