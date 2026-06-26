@@ -218,6 +218,209 @@
       .btn-back:hover {
         background: #e8e8e8;
       }
+
+      .btn-tracker {
+        background: #f0f0f0;
+        color: #333;
+        border: 2px solid #ddd;
+      }
+
+      .btn-tracker:hover {
+        background: #e8e8e8;
+        border-color: #bbb;
+      }
+
+      .btn-tracker.active {
+        background: #10b981;
+        color: white;
+        border-color: #10b981;
+      }
+
+      .btn-summary {
+        background: #f0f0f0;
+        color: #333;
+        border: 2px solid #ddd;
+      }
+
+      .btn-summary:hover {
+        background: #e8e8e8;
+        border-color: #bbb;
+      }
+
+      .btn-summary.active {
+        background: #8b5cf6;
+        color: white;
+        border-color: #8b5cf6;
+      }
+
+      .summary-view {
+        display: none;
+      }
+
+      .summary-view.show {
+        display: block;
+      }
+
+      .summary-scroll {
+        max-height: 450px;
+        overflow-y: auto;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        background: white;
+      }
+
+      .summary-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+      }
+
+      .summary-table thead {
+        background: #f8f9fa;
+        position: sticky;
+        top: 0;
+      }
+
+      .summary-table th {
+        padding: 10px;
+        text-align: left;
+        font-weight: 600;
+        color: #666;
+        border-bottom: 2px solid #ddd;
+      }
+
+      .summary-table td {
+        padding: 10px;
+        border-bottom: 1px solid #eee;
+      }
+
+      .summary-table tbody tr:hover {
+        background: #f8f9fa;
+      }
+
+      .summary-question {
+        max-width: 250px;
+        word-wrap: break-word;
+      }
+
+      .summary-value {
+        text-align: center;
+        font-weight: 600;
+      }
+
+      .summary-section-header {
+        background: #667eea;
+        color: white;
+        font-weight: 600;
+        padding: 10px;
+      }
+
+      .tracker-btn {
+        background: #10b981;
+        color: white;
+        border: none;
+        padding: 8px 12px;
+        border-radius: 4px;
+        font-size: 12px;
+        cursor: pointer;
+        margin: 10px 0;
+      }
+
+      .tracker-btn:hover {
+        background: #059669;
+      }
+
+      .tracker-btn:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+      }
+
+      .tracker-view {
+        display: none;
+      }
+
+      .tracker-view.show {
+        display: block;
+      }
+
+      .tracker-stats {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 15px;
+        margin-bottom: 20px;
+      }
+
+      .stat-card {
+        background: #f8f9fa;
+        padding: 15px;
+        border-radius: 6px;
+        border-left: 4px solid #667eea;
+      }
+
+      .stat-card h3 {
+        font-size: 12px;
+        color: #999;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .stat-card .value {
+        font-size: 28px;
+        font-weight: 600;
+        color: #333;
+      }
+
+      .completion-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+        margin-top: 15px;
+      }
+
+      .completion-table thead {
+        background: #f8f9fa;
+        position: sticky;
+        top: 0;
+      }
+
+      .completion-table th {
+        padding: 10px;
+        text-align: left;
+        font-weight: 600;
+        color: #666;
+        border-bottom: 2px solid #ddd;
+      }
+
+      .completion-table td {
+        padding: 10px;
+        border-bottom: 1px solid #eee;
+      }
+
+      .completion-table tbody tr:hover {
+        background: #f8f9fa;
+      }
+
+      .completion-cell {
+        text-align: center;
+        font-weight: 500;
+      }
+
+      .completion-cell.completed {
+        color: #10b981;
+      }
+
+      .completion-cell.incomplete {
+        color: #ef4444;
+      }
+
+      .tracker-scroll {
+        max-height: 400px;
+        overflow-y: auto;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        background: white;
+      }
     </style>
   </head>
   <body>
@@ -228,6 +431,8 @@
       <div class="button-group">
         <button class="btn-normal active" id="normalBtn">Normal Mode</button>
         <button class="btn-admin" id="adminBtn">Admin Mode</button>
+        <button class="btn-tracker" id="trackerBtn">Completion Tracker</button>
+        <button class="btn-summary" id="summaryBtn">Questionnaire Summary</button>
       </div>
 
       <div class="participant-list" id="participantList">
@@ -239,7 +444,90 @@
         <div class="error" id="errorMessage"></div>
       </div>
 
-      <div class="action-buttons">
+      <div class="tracker-view" id="trackerView">
+        <div class="tracker-stats">
+          <div class="stat-card">
+            <h3>Total Participants</h3>
+            <div class="value" id="totalParticipants">0</div>
+          </div>
+          <div class="stat-card">
+            <h3>Sessions Completed</h3>
+            <div class="value" id="sessionsCompleted">0</div>
+          </div>
+          <div class="stat-card">
+            <h3>Avg Progress</h3>
+            <div class="value" id="avgProgress">0%</div>
+          </div>
+          <div class="stat-card">
+            <h3>Week 6 Finished</h3>
+            <div class="value" id="week6Complete">0</div>
+          </div>
+        </div>
+        <div class="tracker-scroll">
+          <table class="completion-table">
+            <thead>
+              <tr>
+                <th>Participant</th>
+                <th>W1</th>
+                <th>W2</th>
+                <th>W3</th>
+                <th>W4</th>
+                <th>W5</th>
+                <th>W6</th>
+                <th>Progress</th>
+                <th>Sentiment</th>
+              </tr>
+            </thead>
+            <tbody id="trackerTableBody">
+              <tr>
+                <td colspan="8" style="text-align: center; padding: 20px; color: #999;">Loading...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="summary-view" id="summaryView">
+        <div style="margin-bottom: 15px; display: flex; gap: 15px;">
+          <label style="font-size: 13px; color: #666;">
+            Filter by Week:
+            <select id="weekFilter" style="margin-left: 8px; padding: 6px 8px; border: 1px solid #ddd; border-radius: 4px;">
+              <option value="">All Weeks</option>
+              <option value="1">Week 1</option>
+              <option value="2">Week 2</option>
+              <option value="3">Week 3</option>
+              <option value="4">Week 4</option>
+              <option value="5">Week 5</option>
+              <option value="6">Week 6</option>
+            </select>
+          </label>
+          <label style="font-size: 13px; color: #666;">
+            Filter by Condition:
+            <select id="conditionFilter" style="margin-left: 8px; padding: 6px 8px; border: 1px solid #ddd; border-radius: 4px;">
+              <option value="">All Conditions</option>
+            </select>
+          </label>
+        </div>
+        <div class="summary-scroll">
+          <table class="summary-table">
+            <thead>
+              <tr>
+                <th>Question</th>
+                <th>Scale</th>
+                <th>Avg</th>
+                <th>Min</th>
+                <th>Max</th>
+                <th>Responses</th>
+              </tr>
+            </thead>
+            <tbody id="summaryTableBody">
+              <tr>
+                <td colspan="6" style="text-align: center; padding: 20px; color: #999;">Loading...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
         <button class="btn-submit show" id="submitBtn">Continue as Normal User</button>
         <button class="btn-submit" id="submitAdminBtn" disabled>Login as Selected Participant</button>
         <button class="btn-back show" id="backBtn">Back</button>
@@ -255,7 +543,9 @@
 
       const normalBtn = document.getElementById('normalBtn');
       const adminBtn = document.getElementById('adminBtn');
+      const trackerBtn = document.getElementById('trackerBtn');
       const participantList = document.getElementById('participantList');
+      const trackerView = document.getElementById('trackerView');
       const submitBtn = document.getElementById('submitBtn');
       const submitAdminBtn = document.getElementById('submitAdminBtn');
       const backBtn = document.getElementById('backBtn');
@@ -268,7 +558,9 @@
         mode = 'normal';
         normalBtn.classList.add('active');
         adminBtn.classList.remove('active');
+        trackerBtn.classList.remove('active');
         participantList.classList.remove('show');
+        trackerView.classList.remove('show');
         submitBtn.classList.add('show');
         submitAdminBtn.classList.remove('show');
         backBtn.classList.remove('show');
@@ -279,7 +571,9 @@
         mode = 'admin';
         adminBtn.classList.add('active');
         normalBtn.classList.remove('active');
+        trackerBtn.classList.remove('active');
         participantList.classList.add('show');
+        trackerView.classList.remove('show');
         submitBtn.classList.remove('show');
         submitAdminBtn.classList.add('show');
         backBtn.classList.add('show');
@@ -287,6 +581,57 @@
         if (participants.length === 0) {
           await loadParticipants();
         }
+      });
+
+      trackerBtn.addEventListener('click', async () => {
+        console.log('🟢 Tracker button clicked');
+        mode = 'tracker';
+        trackerBtn.classList.add('active');
+        normalBtn.classList.remove('active');
+        adminBtn.classList.remove('active');
+        summaryBtn.classList.remove('active');
+        participantList.classList.remove('show');
+        trackerView.classList.add('show');
+        summaryView.classList.remove('show');
+        submitBtn.classList.remove('show');
+        submitAdminBtn.classList.remove('show');
+        backBtn.classList.add('show');
+        
+        console.log('⏳ Loading tracker data...');
+        await loadTrackerData();
+      });
+
+      const summaryBtn = document.getElementById('summaryBtn');
+      const summaryView = document.getElementById('summaryView');
+      const weekFilter = document.getElementById('weekFilter');
+      const conditionFilter = document.getElementById('conditionFilter');
+
+      summaryBtn.addEventListener('click', async () => {
+        console.log('🟣 Summary button clicked');
+        mode = 'summary';
+        summaryBtn.classList.add('active');
+        normalBtn.classList.remove('active');
+        adminBtn.classList.remove('active');
+        trackerBtn.classList.remove('active');
+        participantList.classList.remove('show');
+        trackerView.classList.remove('show');
+        summaryView.classList.add('show');
+        submitBtn.classList.remove('show');
+        submitAdminBtn.classList.remove('show');
+        backBtn.classList.add('show');
+        
+        console.log('⏳ Loading summary data...');
+        await loadSummaryData();
+      });
+
+      weekFilter.addEventListener('change', async () => {
+        console.log('🔄 Week filter changed to:', weekFilter.value);
+        await loadSummaryData();
+      });
+
+      conditionFilter.addEventListener('change', async () => {
+        console.log('🔄 Condition filter changed to:', conditionFilter.value);
+        await loadSummaryData();
       });
 
       backBtn.addEventListener('click', () => {
@@ -332,11 +677,192 @@
         });
       }
 
+      async function loadTrackerData() {
+        try {
+          console.log('🔍 loadTrackerData called');
+          const data = await ipcRenderer.invoke('get-study-completion-data');
+          console.log('📦 Received data from IPC:', data);
+          
+          if (data.error) {
+            console.warn('⚠️ Error in response:', data.error);
+          }
+          
+          renderTrackerStats(data);
+          renderTrackerTable(data);
+        } catch (err) {
+          console.error('❌ Error loading tracker data:', err);
+          document.getElementById('trackerTableBody').innerHTML = `
+            <tr>
+              <td colspan="8" style="text-align: center; padding: 20px; color: #c00;">
+                Error loading tracker data: ${err.message}
+              </td>
+            </tr>
+          `;
+        }
+      }
+
+      function renderTrackerStats(data) {
+        console.log('📊 Rendering stats:', { totalParticipants: data.participants?.length, totalSessions: data.totalSessions, avgProgress: data.avgProgress, week6Complete: data.week6Completions });
+        document.getElementById('totalParticipants').textContent = data.participants ? data.participants.length : 0;
+        document.getElementById('sessionsCompleted').textContent = data.totalSessions || 0;
+        document.getElementById('avgProgress').textContent = Math.round(data.avgProgress || 0) + '%';
+        document.getElementById('week6Complete').textContent = data.week6Completions || 0;
+      }
+
+      function renderTrackerTable(data) {
+        console.log('📋 Rendering table with participants:', data.participants);
+        const tbody = document.getElementById('trackerTableBody');
+        
+        if (!data.participants || data.participants.length === 0) {
+          console.warn('⚠️ No participants to display');
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="9" style="text-align: center; padding: 20px; color: #999;">
+                No participants found
+              </td>
+            </tr>
+          `;
+          return;
+        }
+
+        const rows = data.participants
+          .map(participant => {
+            const completedWeeks = participant.completedWeeks || [];
+            const progress = (completedWeeks.length / 6 * 100).toFixed(0);
+            const weeks = Array(6).fill(0).map((_, i) => 
+              completedWeeks.includes(i + 1) 
+                ? '<span class="completion-cell completed">✓</span>'
+                : '<span class="completion-cell incomplete">✗</span>'
+            ).join('</td><td>');
+            
+            // Format sentiment score
+            const sentimentDisplay = participant.avgSentiment !== null 
+              ? `<span style="font-weight: 600; color: ${getSentimentColor(participant.avgSentiment)}">${participant.avgSentiment}</span>`
+              : '<span style="color: #999;">—</span>';
+            
+            const row = `
+              <tr>
+                <td><strong>${participant.participantId}</strong></td>
+                <td>${weeks}</td>
+                <td>${progress}%</td>
+                <td>${sentimentDisplay}</td>
+              </tr>
+            `;
+            console.log(`  Row for ${participant.participantId}:`, row);
+            return row;
+          })
+          .join('');
+        
+        console.log(`✓ Rendering ${data.participants.length} participant rows`);
+        tbody.innerHTML = rows;
+      }
+
+      function getSentimentColor(score) {
+        // Color code sentiment: red (negative) → yellow (neutral) → green (positive)
+        const numScore = parseFloat(score);
+        if (numScore < 0.33) return '#ef4444'; // Red for negative
+        if (numScore < 0.67) return '#f59e0b'; // Amber for neutral
+        return '#10b981'; // Green for positive
+      }
+
       searchInput.addEventListener('input', (e) => {
         const query = e.target.value.toLowerCase();
         const filtered = participants.filter(p => p.toLowerCase().includes(query));
         renderParticipants(filtered);
       });
+
+      async function loadSummaryData() {
+        try {
+          console.log('📋 loadSummaryData called');
+          const weekFilter = document.getElementById('weekFilter').value;
+          const conditionFilter = document.getElementById('conditionFilter').value;
+          const data = await ipcRenderer.invoke('get-questionnaire-summary', { 
+            week: weekFilter || null,
+            condition: conditionFilter || null
+          });
+          console.log('📦 Received summary data:', data);
+          
+          // Populate condition filter if we have conditions
+          if (data.availableConditions && data.availableConditions.length > 0) {
+            const currentValue = document.getElementById('conditionFilter').value;
+            const options = ['<option value="">All Conditions</option>'];
+            for (const cond of data.availableConditions) {
+              options.push(`<option value="${cond}"${cond === currentValue ? ' selected' : ''}>${cond}</option>`);
+            }
+            document.getElementById('conditionFilter').innerHTML = options.join('');
+          }
+          
+          renderSummary(data);
+        } catch (err) {
+          console.error('❌ Error loading summary data:', err);
+          document.getElementById('summaryTableBody').innerHTML = `
+            <tr>
+              <td colspan="6" style="text-align: center; padding: 20px; color: #c00;">
+                Error loading summary: ${err.message}
+              </td>
+            </tr>
+          `;
+        }
+      }
+
+      function renderSummary(data) {
+        console.log('📊 Rendering summary with data:', data);
+        const tbody = document.getElementById('summaryTableBody');
+        
+        if (!data.questions || data.questions.length === 0) {
+          console.warn('⚠️ No questionnaire data');
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="6" style="text-align: center; padding: 20px; color: #999;">
+                No questionnaire responses available
+              </td>
+            </tr>
+          `;
+          return;
+        }
+
+        let rows = '';
+        let currentSection = '';
+
+        for (const q of data.questions) {
+          // Add section header if section changed
+          if (q.section !== currentSection) {
+            currentSection = q.section;
+            rows += `
+              <tr>
+                <td colspan="6" class="summary-section-header">${q.section}</td>
+              </tr>
+            `;
+          }
+
+          const avgValue = q.average ? parseFloat(q.average).toFixed(2) : 'N/A';
+          const minValue = q.min !== undefined ? q.min : 'N/A';
+          const maxValue = q.max !== undefined ? q.max : 'N/A';
+          
+          rows += `
+            <tr>
+              <td class="summary-question"><strong>Q${q.questionNumber}</strong> - ${q.text}</td>
+              <td class="summary-value">1-5</td>
+              <td class="summary-value"><strong>${avgValue}</strong></td>
+              <td class="summary-value">${minValue}</td>
+              <td class="summary-value">${maxValue}</td>
+              <td class="summary-value">${q.responseCount}</td>
+            </tr>
+          `;
+        }
+
+        if (rows) {
+          tbody.innerHTML = rows;
+        } else {
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="6" style="text-align: center; padding: 20px; color: #999;">
+                No data available for selected filters
+              </td>
+            </tr>
+          `;
+        }
+      }
 
       submitBtn.addEventListener('click', () => {
         ipcRenderer.send('admin-mode-selected', { mode: 'normal', participant: null });

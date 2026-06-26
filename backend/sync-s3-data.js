@@ -112,6 +112,13 @@ class S3DataSyncer {
               const fileName = path.basename(obj.Key);
               const filePath = path.join(userDir, folder, fileName);
 
+              // Skip if file already exists locally
+              if (fs.existsSync(filePath)) {
+                totalFiles++;
+                process.stdout.write(`\r  ✓ Checked ${totalFiles} files...`);
+                continue;
+              }
+
               // Download file
               try {
                 const data = await this.s3.getObject({

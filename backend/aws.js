@@ -584,6 +584,124 @@ async _safeGetSignedUrl(key) {
       throw err;
     }
   }
+
+  async listStudyResults() {
+    /**
+     * Lists all study result files from S3 study_results folder
+     * Returns array of objects with { filename, participantId, weekNumber, prefix }
+     * Tries multiple prefix patterns to handle em dash vs underscore
+     */
+    if (!this.s3) {
+      console.warn('⚠️ S3 client not available - cannot list study results');
+      return [];
+    }
+
+    try {
+      console.log('🔍 Starting listStudyResults...');
+      console.log(`📍 Bucket: ${this.bucket}`);
+      
+      // Try multiple possible prefixes (em dash vs underscore)
+      const possiblePrefixes = [
+        'study-results/',      // em dash
+        'study_results/',      // underscore
+        'study–results/',      // en dash
+        'study—results/',      // em dash (U+2014)
+      ];
+
+      let files = [];
+      let foundPrefix = null;
+
+      for (const prefix of possiblePrefixes) {
+        console.log(`\n🔄 Trying prefix: "${prefix}"`);
+        const params = {
+          Bucket: this.bucket,
+          Prefix: prefix,
+        };
+
+        try {
+          console.log(`  📤 Calling listObjectsV2 with params:`, params);
+          const result = await this.s3.listObjectsV2(params).promise();
+          
+          console.log(`  📥 Response received. Contents length: ${result.Contents ? result.Contents.length : 0}`);
+          
+          if (result.Contents && result.Contents.length > 0) {
+            console.log(`  ✓ Found ${result.Contents.length} objects with prefix: ${prefix}`);
+            foundPrefix = prefix;
+            
+            for (const obj of result.Contents) {
+              console.log(`    📄 Processing: ${obj.Key}`);
+              
+              // Skip folder markers
+              if (obj.Key.endsWith('/')) {
+                console.log(`      (skipped - folder marker)`);
+                continue;
+              }
+
+              const filename = obj.Key.replace(prefix, '');
+              console.log(`      Filename: ${filename}`);
+              
+              // Parse filename format: [username]_[participant_id]_[week_number].txt
+              // participantId is always in format: participant_[number]
+              // So we look for "participant_" followed by digits
+              const match = filename.match(/^(.+?)(_|—|–|-)(participant_\d+)(_|—|–|-)(\d+)\.txt$/);
+              if (match) {
+                const parsed = {
+                  filename: filename,
+                  username: match[1],
+                  participantId: match[3],
+                  weekNumber: parseInt(match[5]),
+                  prefix: prefix,
+                };
+                console.log(`      ✓ Parsed: ${JSON.stringify(parsed)}`);
+                files.push(parsed);
+              } else {
+                console.log(`      ✗ Did not match pattern`);
+              }
+            }
+            break; // Found files, stop trying other prefixes
+          } else {
+            console.log(`  ✗ No objects found with this prefix`);
+          }
+        } catch (err) {
+          console.log(`  ✗ Error with prefix ${prefix}: ${err.message}`);
+        }
+      }
+
+      if (foundPrefix) {
+        console.log(`\n✓ Found ${files.length} study result files in ${foundPrefix}`);
+        console.log(`All files:`, JSON.stringify(files, null, 2));
+      } else {
+        console.warn('⚠️ No study results folder found with any prefix pattern');
+        console.log('Tried prefixes:', possiblePrefixes);
+      }
+      
+      return files;
+    } catch (err) {
+      console.error('❌ Failed to list study results:', err);
+      console.error('Stack trace:', err.stack);
+      return [];
+    }
+  }
+
+  async getFileContent(key) {
+    /**
+     * Fetch file content from S3
+     */
+    if (!this.s3) {
+      return null;
+    }
+    
+    try {
+      const response = await this.s3.getObject({
+        Bucket: this.bucket,
+        Key: key
+      }).promise();
+      return response.Body.toString('utf-8');
+    } catch (err) {
+      console.warn(`⚠️ Could not fetch ${key}:`, err.message);
+      return null;
+    }
+  }
 }
 
 module.exports = AWSManager;

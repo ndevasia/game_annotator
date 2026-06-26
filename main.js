@@ -96,13 +96,25 @@ function getLocalSessionRoot() {
 
 function getLocalSessionPaths(username, fileTimestamp) {
   const userRoot = path.join(getLocalSessionRoot(), username);
+  const videosDir = path.join(userRoot, 'videos');
+  
+  // Find video file - could be .mkv or .mp4
+  let videoPath = null;
+  if (fs.existsSync(videosDir)) {
+    if (fs.existsSync(path.join(videosDir, `${fileTimestamp}.mkv`))) {
+      videoPath = path.join(videosDir, `${fileTimestamp}.mkv`);
+    } else if (fs.existsSync(path.join(videosDir, `${fileTimestamp}.mp4`))) {
+      videoPath = path.join(videosDir, `${fileTimestamp}.mp4`);
+    }
+  }
+  
   return {
     userRoot,
-    videosDir: path.join(userRoot, 'videos'),
+    videosDir,
     metadataDir: path.join(userRoot, 'metadata'),
     annotationsDir: path.join(userRoot, 'annotations'),
     chatsDir: path.join(userRoot, 'chats'),
-    videoPath: path.join(userRoot, 'videos', `${fileTimestamp}.mkv`),
+    videoPath: videoPath || path.join(videosDir, `${fileTimestamp}.mkv`), // Fallback to .mkv
     metadataPath: path.join(userRoot, 'metadata', `${fileTimestamp}.json`),
     annotationsPath: path.join(userRoot, 'annotations', `${fileTimestamp}.json`),
     chatPath: path.join(userRoot, 'chats', `${fileTimestamp}.json`),
@@ -243,7 +255,7 @@ function parseSessionTimestamp(base) {
 }
 
 function toFileUrl(filePath) {
-  return `file:///${filePath.replace(/\\/g, '/')}`;
+  return `file:///${filePath.replace(/\\/g, '/').replace(/ /g, '%20')}`;
 }
 
 async function listLocalSessions(username) {
@@ -260,7 +272,7 @@ async function listLocalSessions(username) {
 
   const [videoFiles, metadataFiles, annotationFiles] = await Promise.all([
     fs.existsSync(videosDir)
-      ? fs.promises.readdir(videosDir).then((items) => items.filter((name) => name.endsWith('.mkv')))
+      ? fs.promises.readdir(videosDir).then((items) => items.filter((name) => name.endsWith('.mkv') || name.endsWith('.mp4')))
       : Promise.resolve([]),
     fs.existsSync(metadataDir)
       ? fs.promises.readdir(metadataDir).then((items) => items.filter((name) => name.endsWith('.json')))
@@ -271,7 +283,10 @@ async function listLocalSessions(username) {
   ]);
 
   const sessionTimestamps = new Set();
-  videoFiles.forEach((name) => sessionTimestamps.add(name.replace(/\.mkv$/, '')));
+  videoFiles.forEach((name) => {
+    const timestamp = name.replace(/\.(mkv|mp4)$/, '');
+    sessionTimestamps.add(timestamp);
+  });
   metadataFiles.forEach((name) => sessionTimestamps.add(name.replace(/\.json$/, '')));
   annotationFiles.forEach((name) => sessionTimestamps.add(name.replace(/\.json$/, '')));
 
@@ -280,9 +295,11 @@ async function listLocalSessions(username) {
   for (const fileTimestamp of sessionTimestamps) {
     const metadataPath = path.join(metadataDir, `${fileTimestamp}.json`);
     const annotationPath = path.join(annotationsDir, `${fileTimestamp}.json`);
-    const videoPath = path.join(videosDir, `${fileTimestamp}.mkv`);
+    const videoPathMkv = path.join(videosDir, `${fileTimestamp}.mkv`);
+    const videoPathMp4 = path.join(videosDir, `${fileTimestamp}.mp4`);
+    const videoPath = fs.existsSync(videoPathMkv) ? videoPathMkv : fs.existsSync(videoPathMp4) ? videoPathMp4 : null;
 
-    const hasVideo = fs.existsSync(videoPath);
+    const hasVideo = videoPath !== null;
     const hasMetadata = fs.existsSync(metadataPath);
     const hasAnnotations = fs.existsSync(annotationPath);
     if (!hasVideo && !hasMetadata && !hasAnnotations) continue;
@@ -2237,20 +2254,32 @@ app.whenReady().then(async () => {
   isStarting = true;
   appConfig = { ...appConfig, ...(await readConfig()) };
   
+  // Initialize AWS manager early for admin features (before user login)
+  // Use a temporary username for initial S3 connection
+  console.log('🔐 Initializing AWS manager for admin/tracker features...');
+  awsManager = new AWSManager('admin-temp');
+  try {
+    await awsManager.init();
+    console.log('✅ AWS S3 client initialized for admin features');
+  } catch (err) {
+    console.error('❌ Failed to initialize AWS S3 client:', err.message);
+    console.log('⚠️ S3 operations will be unavailable. Local storage will be used.');
+  }
+  
   // Show admin mode selection first
   await createAdminSelectWindow();
   
   if (!sessionMetadata.getUsername()) {
     await createUsernamePrompt();
   }
-  awsManager = new AWSManager(sessionMetadata.getUsername());
   
-  // Initialize AWS manager with error handling
+  // Re-initialize AWS manager with actual username for session operations
+  awsManager = new AWSManager(sessionMetadata.getUsername());
   try {
     await awsManager.init();
-    console.log('✅ AWS S3 client initialized');
+    console.log(`✅ AWS S3 client re-initialized for user: ${sessionMetadata.getUsername()}`);
   } catch (err) {
-    console.error('❌ Failed to initialize AWS S3 client:', err.message);
+    console.error('❌ Failed to re-initialize AWS S3 client:', err.message);
     console.log('⚠️ S3 operations will be unavailable. Local storage will be used.');
   }
 
@@ -2262,7 +2291,7 @@ app.whenReady().then(async () => {
   // Show startup flow (mode/condition selection)
   await showStartupFlow();
 
-  // Now show home window
+  // Now show normal home window
   const choice = await createHomeWindow();
   await handleHomeChoice(choice);
   });
@@ -2527,6 +2556,118 @@ console.log('🔧 Registering open-session-chat listener...');
   });
 console.log('✅ open-session-chat listener registration complete');
 
+/**
+ * Extract "Emotion/Mood:" line from participant text file and calculate VADER sentiment score
+ * Returns a normalized score from 0 to 1 (suitable for linear regression)
+ * @param {string} fileContent - The full text content of the study result file
+ * @returns {number|null} Normalized sentiment score (0-1) or null if unable to calculate
+ */
+function extractAndScoreSentiment(fileContent) {
+  try {
+    // Extract the emotion/mood line
+    const emotionMatch = fileContent.match(/Emotion\/Mood:\s*(.+?)(?:\n|$)/i);
+    if (!emotionMatch || !emotionMatch[1]) {
+      console.log('    ⚠️ No Emotion/Mood line found');
+      return null;
+    }
+    
+    const emotionText = emotionMatch[1].trim();
+    console.log(`    📊 Found emotion text: "${emotionText}"`);
+    
+    // Simple sentiment calculation using word analysis
+    // VADER-like approach: count positive and negative words
+    const sentimentScore = calculateSimpleSentiment(emotionText);
+    
+    // Normalize from -1..1 to 0..1
+    const normalizedScore = (sentimentScore + 1) / 2;
+    console.log(`    💭 Sentiment score: ${sentimentScore.toFixed(3)} → Normalized: ${normalizedScore.toFixed(3)}`);
+    
+    return parseFloat(normalizedScore.toFixed(3));
+  } catch (err) {
+    console.log(`    ❌ Error extracting sentiment: ${err.message}`);
+    return null;
+  }
+}
+
+/**
+ * Calculate sentiment score based on positive/negative words
+ * VADER-inspired lexicon approach without external dependencies
+ * Returns score from -1 (most negative) to 1 (most positive)
+ * @param {string} text - Text to analyze
+ * @returns {number} Sentiment score
+ */
+function calculateSimpleSentiment(text) {
+  // Normalize text
+  const lowerText = text.toLowerCase();
+  
+  // Positive sentiment words
+  const positiveWords = [
+    'focused', 'excited', 'happy', 'great', 'good', 'love', 'amazing', 'excellent',
+    'fantastic', 'wonderful', 'brilliant', 'awesome', 'perfect', 'confident',
+    'energized', 'motivated', 'engaged', 'inspired', 'satisfied', 'proud',
+    'enthusiastic', 'optimistic', 'glad', 'pleased', 'cheerful', 'delighted',
+    'thrilled', 'joyful', 'peaceful', 'calm', 'relaxed', 'content', 'accomplished'
+  ];
+  
+  // Negative sentiment words
+  const negativeWords = [
+    'tired', 'frustrated', 'angry', 'sad', 'bad', 'hate', 'terrible', 'awful',
+    'horrible', 'dreadful', 'anxious', 'worried', 'stressed', 'upset', 'confused',
+    'overwhelmed', 'disappointed', 'discouraged', 'defeated', 'miserable', 'unhappy',
+    'irritated', 'annoyed', 'bored', 'restless', 'nervous', 'fearful', 'doubtful',
+    'struggling', 'exhausted', 'drained'
+  ];
+  
+  // Intensifiers (multipliers for adjacent words)
+  const intensifiers = {
+    'very': 1.5,
+    'extremely': 1.5,
+    'really': 1.3,
+    'so': 1.3,
+    'quite': 1.1
+  };
+  
+  // Negation words (flip sentiment)
+  const negations = ['not', 'no', 'never', 'neither', "don't", "doesn't"];
+  
+  const words = lowerText.split(/\s+/);
+  let score = 0;
+  
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i].replace(/[^\w]/g, ''); // Remove punctuation
+    let wordScore = 0;
+    
+    // Check for positive words
+    if (positiveWords.includes(word)) {
+      wordScore = 1;
+    }
+    // Check for negative words
+    else if (negativeWords.includes(word)) {
+      wordScore = -1;
+    }
+    
+    if (wordScore !== 0) {
+      // Check for negation in previous word
+      if (i > 0) {
+        const prevWord = words[i - 1].replace(/[^\w]/g, '');
+        if (negations.includes(prevWord)) {
+          wordScore *= -1; // Flip sentiment
+        }
+        
+        // Check for intensifiers
+        if (intensifiers[prevWord]) {
+          wordScore *= intensifiers[prevWord];
+        }
+      }
+      
+      score += wordScore;
+    }
+  }
+  
+  // Normalize to -1..1 range (cap at ±1)
+  return Math.max(-1, Math.min(1, score / Math.max(1, Math.abs(score))));
+}
+
   ipcMain.on('hide-username', () => {
     if (usernamePromptWindow && usernamePromptWindow.isVisible()) {
       usernamePromptWindow.close();
@@ -2750,6 +2891,321 @@ console.log('✅ open-session-chat listener registration complete');
     await awsManager.updateSessionReview(username, fileTimestamp, review || '');
     return { success: true };
   });
+  ipcMain.handle('get-study-completion-data', async () => {
+    try {
+      console.log('🔍 get-study-completion-data called');
+      
+      if (!awsManager) {
+        console.error('❌ AWS Manager not initialized');
+        return { error: 'AWS Manager not initialized' };
+      }
+
+      // Get all known participants from s3_data folder
+      console.log('📁 Fetching all participants from s3_data...');
+      const allParticipants = getParticipantsFromS3Data();
+      console.log(`📦 Found ${allParticipants.length} total participants`);
+      
+      // Initialize completion map with all participants
+      const participantMap = {};
+      for (const participant of allParticipants) {
+        participantMap[participant] = {
+          participantId: participant,
+          completedWeeks: [],
+          sentimentScores: [] // Will store normalized sentiment scores (0-1)
+        };
+      }
+
+      // Fetch all study result files from S3 and merge with completion data
+      console.log('📥 Fetching study results from S3...');
+      const results = await awsManager.listStudyResults();
+      console.log(`📦 Received ${results.length} completion records from S3`);
+      
+      // Merge completion data and fetch sentiment scores
+      for (const result of results) {
+        const participantId = result.participantId;
+        console.log(`  Processing: ${participantId} - Week ${result.weekNumber}`);
+        
+        // If participant exists in map, add week; otherwise create new entry
+        if (!participantMap[participantId]) {
+          participantMap[participantId] = {
+            participantId,
+            completedWeeks: [],
+            sentimentScores: []
+          };
+        }
+        
+        // Add week to completed weeks if not already there
+        if (!participantMap[participantId].completedWeeks.includes(result.weekNumber)) {
+          participantMap[participantId].completedWeeks.push(result.weekNumber);
+        }
+        
+        // Fetch the file and extract sentiment
+        try {
+          const key = result.prefix + result.filename;
+          const content = await awsManager.getFileContent(key);
+          if (content) {
+            const sentimentScore = extractAndScoreSentiment(content);
+            if (sentimentScore !== null) {
+              participantMap[participantId].sentimentScores.push(sentimentScore);
+            }
+          }
+        } catch (err) {
+          console.log(`  ⚠️ Could not extract sentiment for ${participantId}: ${err.message}`);
+        }
+      }
+
+      // Convert to sorted array
+      const participants = Object.values(participantMap)
+        .map(p => ({
+          ...p,
+          completedWeeks: p.completedWeeks.sort((a, b) => a - b),
+          avgSentiment: p.sentimentScores.length > 0 
+            ? (p.sentimentScores.reduce((a, b) => a + b, 0) / p.sentimentScores.length).toFixed(3)
+            : null
+        }))
+        .sort((a, b) => {
+          // Sort by participant ID numerically
+          const aNum = parseInt(a.participantId.replace('participant_', ''));
+          const bNum = parseInt(b.participantId.replace('participant_', ''));
+          return aNum - bNum;
+        });
+
+      // Calculate stats based on ALL participants (including those with no completions)
+      const totalSessions = results.length;
+      const totalCompletions = participants.reduce((sum, p) => sum + p.completedWeeks.length, 0);
+      const avgProgress = participants.length > 0 
+        ? Math.round((totalCompletions / (participants.length * 6)) * 100) 
+        : 0;
+      const week6Completions = participants.filter(p => p.completedWeeks.includes(6)).length;
+
+      console.log(`📊 Study Completion: ${participants.length} total participants, ${week6Completions} completed week 6, ${totalSessions} total sessions, ${avgProgress}% avg progress`);
+
+      return {
+        participants,
+        totalSessions,
+        avgProgress,
+        week6Completions
+      };
+    } catch (err) {
+      console.error('❌ Error getting study completion data:', err);
+      console.error('Stack trace:', err.stack);
+      return { error: err.message };
+    }
+  });
+
+  ipcMain.handle('get-questionnaire-summary', async (event, { week, condition }) => {
+    try {
+      console.log('🔍 get-questionnaire-summary called, week:', week, 'condition:', condition);
+      
+      if (!awsManager) {
+        console.error('❌ AWS Manager not initialized');
+        return { error: 'AWS Manager not initialized', questions: [], availableConditions: [] };
+      }
+
+      // Fetch all study result files from S3 (same as completion tracker)
+      console.log('📥 Fetching study result files from S3...');
+      const results = await awsManager.listStudyResults();
+      console.log(`📦 Found ${results.length} study result files`);
+
+      if (results.length === 0) {
+        console.warn('⚠️ No study result files found');
+        return { questions: [], totalResponses: 0, availableConditions: [] };
+      }
+
+      // Fetch all summary files for each participant
+      const questionData = {};
+      const questionOrder = [];
+      const conditions = new Set();
+      let filesProcessed = 0;
+
+      for (const result of results) {
+        try {
+          console.log(`  📄 Processing file: ${result.filename}`);
+          
+          // Try multiple possible prefix patterns for the study results folder
+          const possiblePrefixes = [
+            'study-results/',      // em dash
+            'study_results/',      // underscore
+            'study–results/',      // en dash
+            'study—results/',      // em dash (U+2014)
+          ];
+
+          let content = null;
+          for (const prefix of possiblePrefixes) {
+            try {
+              const key = prefix + result.filename;
+              const params = {
+                Bucket: awsManager.bucket,
+                Key: key
+              };
+              
+              const response = await awsManager.s3.getObject(params).promise();
+              content = response.Body.toString('utf-8');
+              console.log(`    ✓ Found at prefix: ${prefix}`);
+              break;
+            } catch (err) {
+              // Try next prefix
+              continue;
+            }
+          }
+
+          if (!content) {
+            console.warn(`    ✗ Could not find file with any prefix`);
+            continue;
+          }
+
+          // Parse the questionnaire responses from this file
+          const parseResult = parseQuestionnaireResponses(content, week);
+          const responses = parseResult.responses;
+          const fileCondition = parseResult.condition;
+          
+          // Track available conditions
+          if (fileCondition) {
+            conditions.add(fileCondition);
+          }
+          
+          // Skip if condition filter doesn't match
+          if (condition && fileCondition !== condition) {
+            console.log(`    ⏭️  Skipping - condition doesn't match filter`);
+            continue;
+          }
+          
+          console.log(`    ✓ Parsed ${Object.keys(responses).length} questions`);
+          
+          // Merge responses into aggregated data
+          for (const [qKey, value] of Object.entries(responses)) {
+            if (!questionData[qKey]) {
+              questionData[qKey] = {
+                ...value,
+                values: [],
+                responseCount: 0
+              };
+              questionOrder.push(qKey);
+            }
+            if (value.response !== null && value.response !== undefined) {
+              questionData[qKey].values.push(value.response);
+              questionData[qKey].responseCount++;
+            }
+          }
+          filesProcessed++;
+        } catch (err) {
+          console.log(`⚠️ Error processing ${result.filename}: ${err.message}`);
+        }
+      }
+
+      console.log(`✓ Processed ${filesProcessed} files successfully`);
+
+      // Calculate averages, min, max
+      const questions = questionOrder.map(qKey => {
+        const data = questionData[qKey];
+        const avg = data.values.length > 0 
+          ? (data.values.reduce((a, b) => a + b, 0) / data.values.length)
+          : null;
+        
+        return {
+          questionNumber: data.questionNumber,
+          text: data.text,
+          section: data.section,
+          average: avg,
+          min: data.values.length > 0 ? Math.min(...data.values) : null,
+          max: data.values.length > 0 ? Math.max(...data.values) : null,
+          responseCount: data.responseCount
+        };
+      });
+
+      console.log(`📊 Questionnaire Summary: ${questions.length} unique questions from ${filesProcessed} files`);
+      
+      return {
+        questions,
+        totalResponses: Object.values(questionData).reduce((sum, q) => sum + q.responseCount, 0),
+        availableConditions: Array.from(conditions).sort()
+      };
+    } catch (err) {
+      console.error('❌ Error getting questionnaire summary:', err);
+      console.error('Stack:', err.stack);
+      return { error: err.message, questions: [] };
+    }
+  });
+
+  function parseQuestionnaireResponses(content, weekFilter) {
+    const responses = {};
+    
+    // Extract week number from content
+    const weekMatch = content.match(/Week Number:\s*(\d+)/);
+    const fileWeek = weekMatch ? parseInt(weekMatch[1]) : null;
+    
+    // Extract condition from content
+    const conditionMatch = content.match(/Condition:\s*(.+?)(?:\n|$)/);
+    const condition = conditionMatch ? conditionMatch[1].trim() : null;
+    
+    console.log(`    📋 File week: ${fileWeek}, condition: ${condition}, filter week: ${weekFilter}`);
+    
+    // Skip if week filter doesn't match
+    if (weekFilter && fileWeek !== parseInt(weekFilter)) {
+      console.log(`    ⏭️  Skipping - week doesn't match filter`);
+      return { responses, condition };
+    }
+
+    // Define question mappings with their section (from end-session-questionnaire.html)
+    const allQuestions = [
+      { num: 1, text: 'Using this technology made me conscious of my behaviours', section: 'REFLECTION' },
+      { num: 2, text: 'This technology helps me to be able to reflect more easily on my actions', section: 'REFLECTION' },
+      { num: 3, text: 'This technology supports reflecting on my behaviours as an ongoing activity', section: 'REFLECTION' },
+      { num: 4, text: 'This technology can put me in a negative thought cycle', section: 'RUMINATION' },
+      { num: 5, text: 'This technology makes me more likely to ruminate about a past situation', section: 'RUMINATION' },
+      { num: 6, text: 'Using this technology can make me ruminate or dwell over things that happened for a long time afterward', section: 'RUMINATION' },
+      { num: 7, text: 'This technology makes me feel that it is important to me to understand what my feelings mean', section: 'SELF-FOCUSED THINKING' },
+      { num: 8, text: 'This technology supports me in usually knowing why I feel the way I do', section: 'SELF-FOCUSED THINKING' },
+      { num: 9, text: 'This technology makes me feel that it is important to me to be able to understand how my thoughts arise', section: 'SELF-FOCUSED THINKING' },
+      { num: 10, text: 'I felt focused on the game', section: 'GAME EXPERIENCE' },
+      { num: 11, text: 'The game was something that I was experiencing, rather than just doing', section: 'GAME EXPERIENCE' },
+      { num: 12, text: 'I felt motivated when playing the game', section: 'GAME EXPERIENCE' },
+      { num: 13, text: 'I enjoyed playing the game', section: 'GAME EXPERIENCE' },
+      { num: 14, text: 'I felt consciously aware of being in the real world whilst playing', section: 'GAME EXPERIENCE' },
+      { num: 15, text: 'I forgot about my everyday concerns', section: 'GAME EXPERIENCE' },
+      { num: 16, text: 'I felt that I was separated from the real-world environment', section: 'GAME EXPERIENCE' },
+      { num: 17, text: 'I found myself so involved that I was unaware I was using controls', section: 'GAME EXPERIENCE' },
+      { num: 18, text: 'I found the game challenging', section: 'GAME EXPERIENCE' },
+      { num: 19, text: 'I found the game easy', section: 'GAME EXPERIENCE' },
+      { num: 20, text: 'I felt in suspense about whether or not I would do well in the game', section: 'GAME EXPERIENCE' }
+    ];
+
+    // Find the questionnaire responses section
+    const questionnaireStart = content.indexOf('QUESTIONNAIRE RESPONSES');
+    if (questionnaireStart === -1) {
+      console.log(`    ✗ Could not find QUESTIONNAIRE RESPONSES section`);
+      return { responses, condition };
+    }
+
+    const questionnaireSectionContent = content.substring(questionnaireStart);
+    console.log(`    ✓ Found QUESTIONNAIRE RESPONSES section`);
+
+    // Parse each question
+    for (const q of allQuestions) {
+      // Look for pattern: "Q10 - text: number"
+      // Handle both "Q10 - " and "  Q10 - " (with spaces)
+      const pattern = new RegExp(`Q${q.num}\\s*-[^:]*:\\s*(\\d)`, 'i');
+      const match = questionnaireSectionContent.match(pattern);
+      
+      if (match) {
+        const value = parseInt(match[1]);
+        const key = `q${q.num}`;
+        responses[key] = {
+          questionNumber: q.num,
+          text: q.text,
+          section: q.section,
+          response: value
+        };
+        console.log(`      ✓ Q${q.num}: ${value}`);
+      } else {
+        console.log(`      ✗ Q${q.num} not found`);
+      }
+    }
+
+    console.log(`    📊 Total parsed questions: ${Object.keys(responses).length}`);
+    return { responses, condition };
+  }
+
   ipcMain.handle('download-local-session', async (event, { username, fileTimestamp }) => {
     const paths = getLocalSessionPaths(username, fileTimestamp);
     const result = await dialog.showSaveDialog(homeWindow, {

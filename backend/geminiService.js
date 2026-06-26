@@ -234,17 +234,17 @@ Generate ONLY the question text, nothing else.`;
         break;
 
       case 2:
-        // Dialogical Reflection - interaction with game mechanics
+        // Dialogical interaction with game mechanics
         phaseFocus = `Ask about how they interacted with the game's mechanics, feedback systems, and how they responded to what the game told them.`;
         break;
 
       case 3:
-        // Transformative Reflection
+        // Endo-game transformation (behavior change)
         phaseFocus = `Ask if they learned anything, changed their approach, or had any "aha moments" while playing.`;
         break;
 
       case 4:
-        // Critical Reflection
+        // Connection to exo-game insights or realizations
         phaseFocus = `Ask what was most meaningful or valuable about their experience and how it connects to their broader gaming interests.`;
         break;
     }
