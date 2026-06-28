@@ -1683,9 +1683,11 @@ function attachOBSRecordingListener() {
   if (obsListenerAttached) return;
   obs.on('RecordStateChanged', async (data) => {
     console.log('🎥 OBS RecordStateChanged event:', data);
+    console.log(`   Output State: ${data.outputState}`);
+    console.log(`   Output Path: ${data.outputPath}`);
   });
   obsListenerAttached = true;
-  console.log('📡 OBS recording listener attached');
+  console.log('📡 OBS recording listener attached (platform: ' + (process.platform === 'darwin' ? 'macOS' : process.platform === 'win32' ? 'Windows' : 'Linux') + ')');
 }
 
 async function connectOBS() {
@@ -1694,18 +1696,22 @@ async function connectOBS() {
     return;
   }
   try {
-    await obs.connect();
+    // Connect to OBS WebSocket with explicit host and port (works on both Windows and Mac)
+    await obs.connect('ws://localhost:4444');
     isOBSConnected = true;
-    console.log('Connected to OBS WebSocket');
+    console.log('✅ Connected to OBS WebSocket on localhost:4444');
     const { outputActive } = await obs.call('GetRecordStatus');
     if (!outputActive) {
       await obs.call('StartRecord');
       sessionMetadata.setVideoStartTimestamp(Date.now());
       maybeWriteSessionMetadata();
-      console.log('OBS recording started');
+      console.log('🎥 OBS recording started');
     }
   } catch (error) {
-    console.error('Failed to connect/start OBS recording:', error);
+    console.error('❌ Failed to connect/start OBS recording:', error);
+    console.log('💡 Troubleshooting: Make sure OBS is running with WebSocket Server enabled:');
+    console.log('   Windows: OBS > Tools > WebSocket Server Settings > Enable WebSocket Server');
+    console.log('   Mac: OBS > Tools > WebSocket Server Settings > Enable WebSocket Server');
     throw error;
   }
 }
@@ -1724,7 +1730,7 @@ async function stopFFMpegRecording(timeoutMs = 600000) {
     try {
       const { outputActive } = await obs.call('GetRecordStatus');
       if (!outputActive) {
-        console.log('⚠ No active recording to stop.');
+        console.log('⚠️ No active recording to stop.');
         return resolve();
       }
 
@@ -1751,11 +1757,13 @@ async function stopFFMpegRecording(timeoutMs = 600000) {
           obs.off('RecordStateChanged', onStopped);
 
           if (!data.outputPath) {
-            console.warn('⚠ Recording stopped but no file path was returned.');
+            console.warn('⚠️ Recording stopped but no file path was returned.');
             return resolve();
           }
 
           try {
+            console.log(`📁 OBS output path: ${data.outputPath}`);
+            
             const username = sessionMetadata.getUsername();
             const fileTimestamp = sessionMetadata.getFileTimestamp();
             await ensureLocalSessionDirs(username);
@@ -1765,6 +1773,8 @@ async function stopFFMpegRecording(timeoutMs = 600000) {
             const localPaths = getLocalSessionPaths(username, fileTimestamp);
 
             // Save OBS recording locally
+            console.log(`📋 Copying from: ${data.outputPath}`);
+            console.log(`📋 Copying to: ${localPaths.videoPath}`);
             await fs.promises.copyFile(data.outputPath, localPaths.videoPath);
             console.log(`✅ Video saved locally: ${localPaths.videoPath}`);
 
@@ -1784,15 +1794,16 @@ async function stopFFMpegRecording(timeoutMs = 600000) {
                 await cleanupLocalSession(username, fileTimestamp);
                 console.log('✅ Session uploaded to S3 and local copies removed.');
               } catch (uploadError) {
-                console.warn('S3 upload failed. Keeping session locally for later upload.', uploadError);
+                console.warn('⚠️ S3 upload failed. Keeping session locally for later upload.', uploadError);
               }
             }
 
             // Clean up OBS recording file
             try {
               await fs.promises.unlink(data.outputPath);
+              console.log('🗑️ OBS recording file cleaned up');
             } catch (e) {
-              console.warn('Could not delete OBS recording file:', e.message);
+              console.warn('⚠️ Could not delete OBS recording file:', e.message);
             }
           } catch (err) {
             console.error('❌ Failed during save/upload process:', err);
@@ -2155,7 +2166,9 @@ async function showStartupFlow() {
 }
 
 app.whenReady().then(async () => {
-  console.log("A: App starting (OBS version)");
+  console.log("🚀 App starting (OBS version)");
+  console.log(`📱 Platform: ${process.platform === 'darwin' ? '🍎 macOS' : process.platform === 'win32' ? '🪟 Windows' : '🐧 Linux'}`);
+  console.log(`🏗️ Architecture: ${process.arch}`);
   isStarting = true;
   appConfig = { ...appConfig, ...(await readConfig()) };
   if (!sessionMetadata.getUsername()) {
@@ -2172,8 +2185,14 @@ app.whenReady().then(async () => {
     console.log('⚠️ S3 operations will be unavailable. Local storage will be used.');
   }
 
-  console.log('🎙️ OBS version - make sure OBS is running on localhost:4444');
-  console.log('   (OBS > Tools > WebSocket Server Settings)');
+  console.log('🎙️ OBS version - WebSocket Server connection required');
+  console.log('   To enable on any platform:');
+  console.log('   1. Open OBS Studio');
+  console.log('   2. Go to Tools > WebSocket Server Settings');
+  console.log('   3. Enable WebSocket Server (default: localhost:4444)');
+  console.log('   4. Note: No password required (default)');
+  console.log(`   5. Platform detected: ${process.platform === 'darwin' ? '🍎 macOS' : process.platform === 'win32' ? '🪟 Windows' : '🐧 Linux'}`);
+  console.log('   6. For macOS: OBS must have Screen Recording permission (System Preferences > Security & Privacy > Screen Recording)');
 
   isStarting = false;
 

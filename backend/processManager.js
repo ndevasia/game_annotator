@@ -29,7 +29,11 @@ function killAllChildren() {
       if (process.platform === "win32") {
         // Windows requires taskkill to kill the whole process tree
         spawn("taskkill", ["/PID", child.pid, "/F", "/T"]);
+      } else if (process.platform === "darwin") {
+        // macOS: use SIGTERM (standard termination signal)
+        child.kill("SIGTERM");
       } else {
+        // Linux and other Unix-like systems
         child.kill("SIGTERM");
       }
     } catch (err) {
@@ -41,7 +45,7 @@ function killAllChildren() {
 
 // Ensure cleanup on quit
 app.on("before-quit", () => {
-  console.log("Cleaning up child processes...");
+  console.log("🧹 Cleaning up child processes...");
   killAllChildren();
 });
 
