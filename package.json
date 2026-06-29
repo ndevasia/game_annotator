@@ -6,7 +6,7 @@
   "scripts": {
     "start": "electron .",
     "debug": "electron . -- --debug",
-    "dist": "electron-builder",
+    "dist": "electron-builder -m x64 -m arm64",
     "start:control": "electron . -- --condition=control",
     "start:prompt-light": "electron . -- --condition=prompt-light",
     "start:prompt-ai": "electron . -- --condition=prompt-ai"
@@ -40,10 +40,6 @@
         "zip"
       ],
       "icon": "icons/icon.icns",
-      "architectures": [
-        "x64",
-        "arm64"
-      ],
       "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "win": {
