@@ -39,7 +39,12 @@
         "dmg",
         "zip"
       ],
-      "icon": "icons/icon.icns"
+      "icon": "icons/icon.icns",
+      "architectures": [
+        "x64",
+        "arm64"
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "win": {
       "target": "nsis",
